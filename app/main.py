@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import connect_to_mongodb, close_mongodb_connection
+from app.auth.router import router as auth_router
+from app.routers.employees import router as employees_router
 
 
 @asynccontextmanager
@@ -47,6 +49,11 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
+
+
+app.include_router(auth_router)
+app.include_router(employees_router)
+
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from app.config import settings
 from app.database import connect_to_mongodb, close_mongodb_connection
 from app.auth.router import router as auth_router
 from app.routers.employees import router as employees_router
+from app.routers.clients import router as clients_router
 
 
 @asynccontextmanager
@@ -53,6 +54,7 @@ async def health_check():
 
 app.include_router(auth_router)
 app.include_router(employees_router)
+app.include_router(clients_router)
 
 
 

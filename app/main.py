@@ -18,6 +18,8 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     await connect_to_mongodb()
+    from app.auth.service import initialize_default_users
+    await initialize_default_users()
     yield
     # Shutdown
     await close_mongodb_connection()

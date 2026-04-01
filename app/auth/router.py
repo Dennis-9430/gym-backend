@@ -125,9 +125,3 @@ async def change_password(
     )
     
     return {"message": "Password changed successfully"}
-
-
-@router.on_event("startup")
-async def startup_event():
-    """Initialize default users on startup"""
-    await initialize_default_users()

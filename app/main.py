@@ -1,3 +1,5 @@
+# Punto de entrada de la aplicación FastAPI
+# Relacionado con: config.py, database.py
 """FastAPI application entry point"""
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -16,6 +18,8 @@ from app.routers.reports import router as reports_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Inicializa MongoDB al iniciar la app
+    # Relacionado con: database.py, auth/service.py
     """Application lifespan events"""
     # Startup
     await connect_to_mongodb()
@@ -33,7 +37,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+# CORS middleware permite conexiones desde el frontend
+# Relacionado con: frontend (React)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -45,6 +50,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
+    # Endpoint raíz que retorna información de la API
     """Root endpoint"""
     return {
         "message": "Gym Management API",
@@ -55,10 +61,13 @@ async def root():
 
 @app.get("/health")
 async def health_check():
+    # Verifica que la API esté funcionando
     """Health check endpoint"""
     return {"status": "healthy"}
 
 
+# Incluir todas las rutas del API
+# Relacionado con: auth/router.py, routers/*
 app.include_router(auth_router)
 app.include_router(employees_router)
 app.include_router(clients_router)
@@ -71,6 +80,8 @@ app.include_router(reports_router)
 
 
 if __name__ == "__main__":
+    # Inicia el servidor uvicorn
+    # Relacionado con: config.py
     import uvicorn
     uvicorn.run(
         "app.main:app",

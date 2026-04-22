@@ -1,3 +1,5 @@
+# Endpoints para gestión de empleados
+# Relacionado con: models/employee.py, auth/router.py, database.py
 """Employees router"""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional, List
@@ -15,6 +17,8 @@ router = APIRouter(prefix="/api/employees", tags=["Employees"])
 
 
 def serialize_employee(doc: dict) -> dict:
+    # Converte documento MongoDB a respuesta JSON
+    # Relacionado con: models/employee.py
     """Convert MongoDB document to response"""
     if doc:
         doc["_id"] = str(doc["_id"])
@@ -23,6 +27,8 @@ def serialize_employee(doc: dict) -> dict:
 
 @router.get("", response_model=EmployeeListResponse)
 async def list_employees(
+    # Lista empleados con paginación y filtros
+    # Relacionado con: models/employee.py (EmployeeListResponse), frontend
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     role: Optional[EmployeeRole] = None,

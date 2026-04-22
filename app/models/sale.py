@@ -1,3 +1,5 @@
+# Esquemas Pydantic para ventas
+# Relacionado con: routers/sales.py, database.py
 """Sale Pydantic schemas"""
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -6,12 +8,16 @@ from enum import Enum
 
 
 class PaymentMethod(str, Enum):
+    # Métodos de pago disponibles
+    # Relacionado con: routers/sales.py, frontend
     CASH = "CASH"
     CARD = "CARD"
     TRANSFER = "TRANSFER"
 
 
 class SaleItem(BaseModel):
+    # Ítem individual en una venta
+    # Relacionado con: routers/sales.py
     productId: Optional[str] = None
     serviceId: Optional[str] = None
     productName: str
@@ -21,6 +27,8 @@ class SaleItem(BaseModel):
 
 
 class SaleBase(BaseModel):
+    # Datos base de una venta
+    # Relacionado con: routers/sales.py, frontend
     items: List[SaleItem]
     subtotal: float
     tax: float = 0.0
@@ -32,10 +40,14 @@ class SaleBase(BaseModel):
 
 
 class SaleCreate(SaleBase):
+    # Datos para crear venta
+    # Relacionado con: routers/sales.py (create_sale)
     pass
 
 
 class SaleResponse(SaleBase):
+    # Respuesta con todos los datos de la venta
+    # Relacionado con: routers/sales.py (get_sale)
     id: str = Field(..., alias="_id")
     createdBy: str
     createdAt: datetime = Field(default_factory=datetime.utcnow)
@@ -45,5 +57,7 @@ class SaleResponse(SaleBase):
 
 
 class SaleListResponse(BaseModel):
+    # Lista de ventas con paginación
+    # Relacionado con: routers/sales.py (list_sales)
     sales: List[SaleResponse]
     total: int

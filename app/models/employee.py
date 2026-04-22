@@ -1,3 +1,5 @@
+# Esquemas Pydantic para empleados
+# Relacionado con: routers/employees.py, database.py
 """Employee Pydantic schemas"""
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -6,6 +8,8 @@ from enum import Enum
 
 
 class EmployeeRole(str, Enum):
+    # Roles de empleado en el sistema
+    # Relacionado con: routers/employees.py, frontend
     """Employee roles"""
     ADMIN = "ADMIN"
     RECEPCIONISTA = "RECEPCIONISTA"
@@ -13,6 +17,8 @@ class EmployeeRole(str, Enum):
 
 
 class EmployeeStatus(str, Enum):
+    # Estado del empleado
+    # Relacionado con: routers/employees.py
     """Employee status"""
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
@@ -20,12 +26,16 @@ class EmployeeStatus(str, Enum):
 
 
 class Permission(BaseModel):
+    # Esquema de permisos por módulo
+    # Relacionado con: routers/employees.py
     """Permission schema"""
     module: str
     actions: List[str]
 
 
 class EmployeeBase(BaseModel):
+    # Datos base del empleado
+    # Relacionado con: routers/employees.py
     """Base employee schema"""
     username: str
     documentType: str = "CEDULA"
@@ -39,11 +49,15 @@ class EmployeeBase(BaseModel):
 
 
 class EmployeeCreate(EmployeeBase):
+    # Datos para crear empleado
+    # Relacionado con: routers/employees.py (create_employee)
     """Employee creation schema"""
     password: Optional[str] = None
 
 
 class EmployeeUpdate(BaseModel):
+    # Datos para actualizar empleado
+    # Relacionado con: routers/employees.py (update_employee)
     """Employee update schema"""
     documentType: Optional[str] = None
     documentNumber: Optional[str] = None
@@ -56,6 +70,8 @@ class EmployeeUpdate(BaseModel):
 
 
 class EmployeeResponse(EmployeeBase):
+    # Respuesta con todos los datos del empleado
+    # Relacionado con: routers/employees.py (get_employee)
     """Employee response schema"""
     id: str = Field(..., alias="_id")
     permissions: List[Permission] = []
@@ -67,6 +83,8 @@ class EmployeeResponse(EmployeeBase):
 
 
 class EmployeeListResponse(BaseModel):
+    # Lista de empleados con paginación
+    # Relacionado con: routers/employees.py (list_employees)
     """Employee list response"""
     employees: List[EmployeeResponse]
     total: int

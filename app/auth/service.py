@@ -1,3 +1,5 @@
+# Lógica de negocio para autenticación
+# Relacionado con: auth/router.py, auth/utils.py, auth/schemas.py
 """Authentication service"""
 from datetime import timedelta
 from typing import Optional
@@ -8,6 +10,8 @@ from app.config import settings
 
 
 async def authenticate_user(username: str, password: str) -> Optional[UserResponse]:
+    # Valida credenciales del usuario contra la base de datos
+    # Relacionado con: auth/router.py (login), auth/utils.py (verify_password)
     """Authenticate user with username and password"""
     db = get_database()
     user_doc = await db[Collections.USERS].find_one({"username": username.lower()})
@@ -26,6 +30,8 @@ async def authenticate_user(username: str, password: str) -> Optional[UserRespon
 
 
 async def create_token(username: str, role: UserRole) -> Token:
+    # Genera token JWT para el usuario
+    # Relacionado con: auth/router.py (login), config.py
     """Create JWT token for user"""
     access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -36,12 +42,16 @@ async def create_token(username: str, role: UserRole) -> Token:
 
 
 async def get_user_by_username(username: str) -> Optional[dict]:
+    # Busca usuario por nombre de usuario
+    # Relacionado con: auth/router.py (register, change_password)
     """Get user by username"""
     db = get_database()
     return await db[Collections.USERS].find_one({"username": username.lower()})
 
 
 async def create_user(username: str, password_hash: str, role: UserRole, employee_id: Optional[str] = None) -> dict:
+    # Crea nuevo usuario en la base de datos
+    # Relacionado con: auth/router.py (register)
     """Create new user"""
     db = get_database()
     user_doc = {
@@ -56,6 +66,8 @@ async def create_user(username: str, password_hash: str, role: UserRole, employe
 
 
 async def initialize_default_users():
+    # Crea usuarios por defecto al iniciar la app (admin/admin, receptor/receptor)
+    # Relacionado con: main.py (lifespan), auth/utils.py
     """Initialize default users if they don't exist"""
     db = get_database()
     initial_users = create_initial_users()

@@ -1,3 +1,5 @@
+# Endpoints para gestión de servicios/membresías
+# Relacionado con: models/service.py, auth/router.py, database.py
 """Services (Memberships) router"""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional

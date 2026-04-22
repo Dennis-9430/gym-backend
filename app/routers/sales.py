@@ -1,3 +1,5 @@
+# Endpoints para gestión de ventas
+# Relacionado con: models/sale.py, auth/router.py, database.py
 """Sales router"""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional
@@ -15,6 +17,8 @@ router = APIRouter(prefix="/api/sales", tags=["Sales"])
 
 
 def serialize_sale(doc: dict) -> dict:
+    # Convierte documento MongoDB a respuesta JSON
+    # Relacionado con: models/sale.py
     if doc and "_id" in doc:
         doc["_id"] = str(doc["_id"])
     return doc
@@ -22,6 +26,8 @@ def serialize_sale(doc: dict) -> dict:
 
 @router.get("", response_model=SaleListResponse)
 async def list_sales(
+    # Lista ventas con paginación y filtros por fecha
+    # Relacionado con: models/sale.py (SaleListResponse), frontend
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     start_date: Optional[str] = None,

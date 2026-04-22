@@ -1,3 +1,5 @@
+# Rutas de autenticación (login, register, logout)
+# Relacionado con: auth/service.py, auth/schemas.py, auth/utils.py
 """Authentication router"""
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -9,10 +11,14 @@ from app.auth.schemas import UserRole
 
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+# OAuth2 scheme para obtener token del header
+# Relacionado con: auth/service.py (create_token)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
+    # Extrae y valida el usuario del token JWT
+    # Relacionado con: auth/utils.py (decode_token)
     """Get current authenticated user from token"""
     payload = decode_token(token)
     if payload is None:
@@ -37,6 +43,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
 
 @router.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    # Valida credenciales y retorna token JWT
+    # Relacionado con: auth/service.py (authenticate_user, create_token)
     """Login endpoint"""
     user = await authenticate_user(form_data.username, form_data.password)
     
@@ -53,18 +61,24 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
 @router.post("/logout")
 async def logout(current_user: UserResponse = Depends(get_current_user)):
+    # Cierra sesión (el token se invalida en el frontend)
+    # Relacionado con: get_current_user
     """Logout endpoint"""
     return {"message": "Logged out successfully"}
 
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: UserResponse = Depends(get_current_user)):
+    # Retorna información del usuario actual
+    # Relacionado con: get_current_user
     """Get current user info"""
     return current_user
 
 
 @router.post("/register", response_model=UserResponse)
 async def register(user_data: UserCreate, current_user: UserResponse = Depends(get_current_user)):
+    # Crea un nuevo usuario (solo admins)
+    # Relacionado con: get_current_user, auth/service.py (create_user)
     """Register new user (admin only)"""
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(
@@ -100,6 +114,8 @@ async def change_password(
     password_data: PasswordChange,
     current_user: UserResponse = Depends(get_current_user)
 ):
+    # Cambia la contraseña del usuario actual
+    # Relacionado con: get_current_user, auth/utils.py (verify_password)
     """Change password"""
     from app.database import get_database, Collections
     

@@ -1,3 +1,5 @@
+# Endpoints para gestión de productos
+# Relacionado con: models/product.py, auth/router.py, database.py
 """Products router"""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional

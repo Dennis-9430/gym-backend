@@ -1,10 +1,13 @@
+# Endpoints para gestión de asistencia
+# Relacionado con: models/attendance.py, auth/router.py, database.py
 """Attendance router"""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 from bson import ObjectId
 from app.models.attendance import (
-    AttendanceCheckIn, AttendanceResponse, AttendanceListResponse
+    AttendanceCheckIn, AttendanceCheckOut, 
+    AttendanceResponse, AttendanceListResponse
 )
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse

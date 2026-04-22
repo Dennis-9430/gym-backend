@@ -1,3 +1,5 @@
+# Endpoints para gestión de clientes
+# Relacionado con: models/client.py, auth/router.py, database.py
 """Clients router"""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional
@@ -15,13 +17,17 @@ router = APIRouter(prefix="/api/clients", tags=["Clients"])
 
 
 def serialize_client(doc: dict) -> dict:
+    # Convierte ObjectId a string para JSON
+    # Relacionado con: models/client.py
     if doc:
-        doc["_id"] = doc.get("id", doc["_id"]) if "_id" in doc else doc.get("id", 0)
+        doc["id"] = doc.get("id", doc["_id"]) if "_id" in doc else doc.get("id", 0)
     return doc
 
 
 @router.get("", response_model=ClientListResponse)
 async def list_clients(
+    # Lista clientes con paginación y filtros
+    # Relacionado con: models/client.py (ClientListResponse), frontend
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     status: Optional[MembershipStatus] = None,
@@ -49,6 +55,8 @@ async def list_clients(
 
 @router.get("/{client_id}", response_model=ClientResponse)
 async def get_client(
+    # Obtiene un cliente por ID
+    # Relacionado con: models/client.py (ClientResponse)
     client_id: int,
     current_user: UserResponse = Depends(get_current_user)
 ):
@@ -66,6 +74,8 @@ async def get_client(
 
 @router.post("", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 async def create_client(
+    # Crea un nuevo cliente
+    # Relacionado con: models/client.py (ClientCreate)
     client_data: ClientCreate,
     current_user: UserResponse = Depends(get_current_user)
 ):
@@ -96,6 +106,8 @@ async def create_client(
 
 @router.put("/{client_id}", response_model=ClientResponse)
 async def update_client(
+    # Actualiza un cliente existente
+    # Relacionado con: models/client.py (ClientUpdate)
     client_id: int,
     client_data: ClientUpdate,
     current_user: UserResponse = Depends(get_current_user)

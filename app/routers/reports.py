@@ -1,3 +1,5 @@
+# Endpoints para reportes financieros
+# Relacionado con: database.py, routers/sales.py, models/sale.py
 """Financial reports router"""
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
@@ -12,6 +14,8 @@ router = APIRouter(prefix="/api/reports", tags=["Reports"])
 
 @router.get("/financial/summary")
 async def get_financial_summary(
+    # Resume financiero por periodo (ventas, ingresos por metodo de pago)
+    # Relacionado con: database.py (Collections.SALES), models/sale.py
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     current_user: UserResponse = Depends(get_current_user)

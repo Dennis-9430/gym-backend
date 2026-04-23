@@ -11,6 +11,7 @@ from app.models.client import (
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
+from app.utils.sanitize import sanitize_search_input
 
 
 router = APIRouter(prefix="/api/clients", tags=["Clients"])
@@ -39,11 +40,14 @@ async def list_clients(
     query = {}
     if status:
         query["membershipStatus"] = status.value
-    if search:
+    
+    # Sanitizar búsqueda - búsqueda exacta
+    sanitized = sanitize_search_input(search)
+    if sanitized:
         query["$or"] = [
-            {"firstName": {"$regex": search, "$options": "i"}},
-            {"lastName": {"$regex": search, "$options": "i"}},
-            {"documentNumber": {"$regex": search, "$options": "i"}}
+            {"firstName": sanitized},
+            {"lastName": sanitized},
+            {"documentNumber": sanitized}
         ]
     
     total = await db[Collections.CLIENTS].count_documents(query)

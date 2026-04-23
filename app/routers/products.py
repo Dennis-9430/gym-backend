@@ -10,6 +10,7 @@ from app.models.product import (
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
+from app.utils.sanitize import sanitize_search_input
 
 
 router = APIRouter(prefix="/api/products", tags=["Products"])
@@ -35,10 +36,13 @@ async def list_products(
     query = {}
     if category:
         query["category"] = category
-    if search:
+    
+    # Sanitizar búsqueda - búsqueda exacta
+    sanitized = sanitize_search_input(search)
+    if sanitized:
         query["$or"] = [
-            {"name": {"$regex": search, "$options": "i"}},
-            {"code": {"$regex": search, "$options": "i"}}
+            {"name": sanitized},
+            {"code": sanitized}
         ]
     if low_stock:
         query["$expr"] = {"$lte": ["$stock", "$minStock"]}

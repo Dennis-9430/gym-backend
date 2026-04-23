@@ -14,6 +14,7 @@ from app.routers.products import router as products_router
 from app.routers.sales import router as sales_router
 from app.routers.attendance import router as attendance_router
 from app.routers.reports import router as reports_router
+from app.middleware.rate_limit import RateLimitMiddleware
 
 
 @asynccontextmanager
@@ -37,11 +38,21 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware permite conexiones desde el frontend
-# Relacionado con: frontend (React)
+# CORS middleware - permite orígenes específicos para desarrollo
+# En producción, configurar solo el dominio del frontend
+# Relacionado con: frontend (React - puerto 3000 o 5173)
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",      # React dev server
+    "http://localhost:5173",    # Vite dev server  
+    "http://localhost:8000",    # Backend local
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -76,6 +87,9 @@ app.include_router(products_router)
 app.include_router(sales_router)
 app.include_router(attendance_router)
 app.include_router(reports_router)
+
+# Rate limiting - 100 requests por minuto
+app.add_middleware(RateLimitMiddleware, rate_limit=100)
 
 
 

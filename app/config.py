@@ -16,8 +16,9 @@ class Settings(BaseSettings):
     MONGODB_DB_NAME: str = "gym_db"
     
     # JWT - Configuración de autenticación
+    # IMPORTANTE: Cambiar en producción con secrets.generate() o heredar de environment
     # Relacionado con: auth/utils.py
-    JWT_SECRET_KEY: str = "dev-secret-key-change-in-production"
+    JWT_SECRET_KEY: str = "gym-management-jwt-secret-key-2024-change-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     

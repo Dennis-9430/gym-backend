@@ -106,7 +106,8 @@ async def create_employee(
     
     employee_doc = employee_data.model_dump()
     employee_doc["permissions"] = []
-    employee_doc["createdAt"] = employee_doc.get("updatedAt") = None
+    employee_doc["createdAt"] = None
+    employee_doc["updatedAt"] = None
     
     result = await db[Collections.EMPLOYEES].insert_one(employee_doc)
     employee_doc["_id"] = result.inserted_id
@@ -214,3 +215,70 @@ async def update_permissions(
     
     updated = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
     return serialize_employee(updated)
+
+
+# Funcion para inicializar empleados seed al iniciar la app
+# Relacionado con: main.py (lifespan)
+async def initialize_seed_employees():
+    """Inicializa empleados de ejemplo si no existen"""
+    db = get_database()
+    
+    # Verificar si ya hay empleados
+    existing_count = await db[Collections.EMPLOYEES].count_documents({})
+    if existing_count > 0:
+        return
+    
+    # Empleados seed para desarrollo
+    seed_employees = [
+        {
+            "username": "admin",
+            "documentNumber": "0102030405",
+            "firstName": "Admin",
+            "lastName": "Sistema",
+            "email": "admin@gym.com",
+            "phone": "099999999",
+            "address": "Direccion admin",
+            "notes": "Administrador del sistema",
+            "password": "admin123",
+            "role": "ADMIN",
+            "status": "ACTIVO",
+            "permissions": [],
+            "createdAt": None
+        },
+        {
+            "username": "dennis",
+            "documentNumber": "0203040506",
+            "firstName": "Dennis",
+            "lastName": "Empleado",
+            "email": "dennis@gym.com",
+            "phone": "098888888",
+            "address": "Direccion empleado",
+            "notes": "Usuario principal",
+            "password": "123456",
+            "role": "RECEPCIONISTA",
+            "status": "ACTIVO",
+            "permissions": [],
+            "createdAt": None
+        },
+        {
+            "username": "trainer",
+            "documentNumber": "0304050607",
+            "firstName": "Luis",
+            "lastName": "Trainer",
+            "email": "trainer@gym.com",
+            "phone": "097777777",
+            "address": "Direccion entrenador",
+            "notes": "Entrenador",
+            "password": "trainer123",
+            "role": "ENTRENADOR",
+            "status": "INACTIVO",
+            "permissions": [],
+            "createdAt": None
+        },
+    ]
+    
+    # Insertar empleados
+    for emp in seed_employees:
+        await db[Collections.EMPLOYEES].insert_one(emp)
+    
+    print(f"Created {len(seed_employees)} seed employees")

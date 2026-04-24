@@ -16,6 +16,7 @@ from app.routers.attendance import router as attendance_router
 from app.routers.reports import router as reports_router
 from app.routers.tenants import router as tenants_router
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.plan_protection import PlanProtectionMiddleware
 
 
 @asynccontextmanager
@@ -103,6 +104,9 @@ app.include_router(tenants_router)
 
 # Rate limiting - 100 requests por minuto
 app.add_middleware(RateLimitMiddleware, rate_limit=100)
+
+# Plan protection middleware - AGREGAR ANTES para que se ejecute primero
+app.add_middleware(PlanProtectionMiddleware)
 
 
 

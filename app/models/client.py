@@ -36,6 +36,7 @@ class MembershipType(str, Enum):
 class ClientBase(BaseModel):
     # Datos base del cliente (requeridos)
     # Relacionado con: routers/clients.py, frontend
+    tenantId: str = ""  # ID del tenant (gimnasio) al que pertenece
     documentType: DocumentType = DocumentType.CEDULA
     documentNumber: str
     firstName: str

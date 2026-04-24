@@ -37,6 +37,7 @@ class EmployeeBase(BaseModel):
     # Datos base del empleado
     # Relacionado con: routers/employees.py
     """Base employee schema"""
+    tenantId: str = ""  # ID del tenant (gimnasio) al que pertenece
     username: str
     documentType: str = "CEDULA"
     documentNumber: str

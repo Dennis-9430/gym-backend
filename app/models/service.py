@@ -9,6 +9,7 @@ from datetime import datetime
 class ServiceBase(BaseModel):
     # Datos base del servicio
     # Relacionado con: routers/services.py, frontend
+    tenantId: str = ""  # ID del tenant (gimnasio) al que pertenece
     name: str
     description: str = ""
     price: float = 0.0

@@ -29,6 +29,7 @@ class SaleItem(BaseModel):
 class SaleBase(BaseModel):
     # Datos base de una venta
     # Relacionado con: routers/sales.py, frontend
+    tenantId: str = ""  # ID del tenant (gimnasio) al que pertenece
     items: List[SaleItem]
     subtotal: float
     tax: float = 0.0

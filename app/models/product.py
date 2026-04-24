@@ -9,6 +9,7 @@ from datetime import datetime
 class ProductBase(BaseModel):
     # Datos base del producto
     # Relacionado con: routers/products.py, frontend
+    tenantId: str = ""  # ID del tenant (gimnasio) al que pertenece
     code: str
     name: str
     description: str = ""

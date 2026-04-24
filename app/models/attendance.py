@@ -9,6 +9,7 @@ from datetime import datetime
 class AttendanceBase(BaseModel):
     # Datos base de asistencia
     # Relacionado con: routers/attendance.py
+    tenantId: str = ""  # ID del tenant (gimnasio) al que pertenece
     clientId: int
     clientName: str
 

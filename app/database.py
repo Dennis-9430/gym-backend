@@ -53,6 +53,7 @@ async def get_collection(name: str):
 # Constantes con los nombres de las colecciones
 # Relacionado con: models/*
 class Collections:
+    TENANTS = "tenants"
     USERS = "users"
     EMPLOYEES = "employees"
     CLIENTS = "clients"

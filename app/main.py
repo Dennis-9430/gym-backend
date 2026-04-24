@@ -14,6 +14,7 @@ from app.routers.products import router as products_router
 from app.routers.sales import router as sales_router
 from app.routers.attendance import router as attendance_router
 from app.routers.reports import router as reports_router
+from app.routers.tenants import router as tenants_router
 from app.middleware.rate_limit import RateLimitMiddleware
 
 
@@ -24,8 +25,19 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     await connect_to_mongodb()
+    
+    # Inicializar usuarios por defecto
     from app.auth.service import initialize_default_users
     await initialize_default_users()
+    
+    # Inicializar empleados seed si no existen
+    from app.routers.employees import initialize_seed_employees
+    await initialize_seed_employees()
+    
+    # Inicializar tenant demo si no existe
+    from app.routers.tenants import initialize_tenant_demo
+    await initialize_tenant_demo()
+    
     yield
     # Shutdown
     await close_mongodb_connection()
@@ -87,6 +99,7 @@ app.include_router(products_router)
 app.include_router(sales_router)
 app.include_router(attendance_router)
 app.include_router(reports_router)
+app.include_router(tenants_router)
 
 # Rate limiting - 100 requests por minuto
 app.add_middleware(RateLimitMiddleware, rate_limit=100)

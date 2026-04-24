@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # JWT - Configuración de autenticación
     # IMPORTANTE: Cambiar en producción con secrets.generate() o heredar de environment
     # Relacionado con: auth/utils.py
-    JWT_SECRET_KEY: str = "gym-management-jwt-secret-key-2024-change-in-production"
+    JWT_SECRET_KEY: str = "gym-jwt-secret-2024"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     

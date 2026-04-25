@@ -17,6 +17,7 @@ class PlanProtectionMiddleware(BaseHTTPMiddleware):
     PREMIUM_ROUTES = [
         "/api/employees",
         "/api/reports",
+        "/api/tenants",
     ]
     
     async def dispatch(self, request: Request, call_next):
@@ -26,6 +27,20 @@ class PlanProtectionMiddleware(BaseHTTPMiddleware):
         # Solo proteger rutas de API
         if not path.startswith("/api/"):
             return await call_next(request)
+        
+        # Rutas que NO requieren protección - permitir todo
+        public_api_routes = [
+            "/api/clients", 
+            "/api/products", 
+            "/api/sales", 
+            "/api/services", 
+            "/api/attendance", 
+            "/api/auth",
+            "/api/tenants",
+        ]
+        for route in public_api_routes:
+            if path.startswith(route):
+                return await call_next(request)
         
         # Obtener tenant ID
         tenant_id = self._get_tenant_id(request)
@@ -70,23 +85,26 @@ class PlanProtectionMiddleware(BaseHTTPMiddleware):
         
         return await call_next(request)
     
-    def _get_tenant_id(self, request: Request) -> str:
+def _get_tenant_id(self, request: Request) -> str:
         """Extrae el tenant ID de la request"""
         # Del header X-Tenant-ID
         tenant_id = request.headers.get("X-Tenant-ID")
         if tenant_id:
             return tenant_id
         
-        # Del token Authorization
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            from app.auth.utils import decode_token
+        # Del header Authorization (Bearer token)
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            from jose import jwt, JWTError
+            from app.config import settings
+            
             token = auth_header.replace("Bearer ", "")
-            payload = decode_token(token)
-            if payload:
+            try:
+                payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
                 tenant_id = payload.get("tenantId")
-                print(f"[PLAN] Token payload: {payload}, tenant_id: {tenant_id}")
-                return tenant_id
+                if tenant_id:
+                    return tenant_id
+            except JWTError:
+                pass
         
-        print(f"[PLAN] No se encontró tenant_id, headers: {dict(request.headers)}")
         return None

@@ -8,12 +8,8 @@ from enum import Enum
 
 
 class EmployeeRole(str, Enum):
-    # Roles de empleado en el sistema
-    # Relacionado con: routers/employees.py, frontend
-    """Employee roles"""
     ADMIN = "ADMIN"
     RECEPCIONISTA = "RECEPCIONISTA"
-    ENTRENADOR = "ENTRENADOR"
 
 
 class EmployeeStatus(str, Enum):

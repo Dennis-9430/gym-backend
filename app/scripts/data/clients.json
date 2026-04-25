@@ -1,0 +1,17 @@
+[
+  {
+    "documentType": "CEDULA",
+    "documentNumber": "12345678",
+    "firstName": "Juan",
+    "lastName": "Pérez",
+    "phone": "099123456",
+    "email": "juan@email.com",
+    "address": "Calle 123",
+    "emergencyContact": "",
+    "emergencyPhone": "",
+    "notes": "",
+    "memberShip": "Mensual",
+    "memberShipStatus": "ACTIVE",
+    "fingerPrint": false
+  }
+]

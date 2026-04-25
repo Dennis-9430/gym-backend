@@ -80,7 +80,7 @@ class ClientUpdate(BaseModel):
 class ClientResponse(ClientBase):
     # Respuesta con todos los datos del cliente
     # Relacionado con: routers/clients.py (get_client)
-    id: int = Field(..., alias="_id")
+    id: str = Field(..., alias="_id")
     membership: str = "Por registrar"
     membershipStatus: MembershipStatus = MembershipStatus.NONE
     membershipStartDate: Optional[datetime] = None

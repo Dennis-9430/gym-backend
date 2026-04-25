@@ -1,43 +1,80 @@
 # Endpoints para gestión de ventas
 # Relacionado con: models/sale.py, auth/router.py, database.py
 """Sales router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
 from typing import Optional
 from datetime import datetime
 from bson import ObjectId
+from jose import JWTError, jwt
 from app.models.sale import (
     SaleCreate, SaleResponse, SaleListResponse, SaleItem
 )
+from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
+from app.config import settings
 
 
 router = APIRouter(prefix="/api/sales", tags=["Sales"])
 
 
 def serialize_sale(doc: dict) -> dict:
-    # Convierte documento MongoDB a respuesta JSON
-    # Relacionado con: models/sale.py
     if doc and "_id" in doc:
         doc["_id"] = str(doc["_id"])
     return doc
 
 
+async def get_tenant_from_header_sales(authorization: str = Header(None)) -> TenantResponse:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token no proporcionado"
+        )
+    
+    token = authorization.replace("Bearer ", "")
+    
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        tenant_id = payload.get("tenantId")
+        
+        if not tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido"
+            )
+        
+        return TenantResponse(
+            _id=tenant_id,
+            tenantId=tenant_id,
+            email=payload.get("sub", ""),
+            businessName=payload.get("businessName", ""),
+            businessPhone=payload.get("businessPhone", ""),
+            businessAddress=payload.get("businessAddress", ""),
+            businessRuc=payload.get("businessRuc", ""),
+            plan=SubscriptionPlan.BASIC,
+            subscriptionStatus=SubscriptionStatus.ACTIVE
+        )
+    
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido"
+        )
+
+
 @router.get("", response_model=SaleListResponse)
 async def list_sales(
-    # Lista ventas con paginación y filtros por fecha
-    # Relacionado con: models/sale.py (SaleListResponse), frontend
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     client_id: Optional[int] = None,
-    current_user: UserResponse = Depends(get_current_user)
+    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
 ):
     db = get_database()
     
-    query = {}
+    query = {"tenantId": tenant.tenantId}
     if start_date:
         query["createdAt"] = {"$gte": datetime.fromisoformat(start_date)}
     if end_date:
@@ -61,7 +98,7 @@ async def list_sales(
 @router.get("/{sale_id}", response_model=SaleResponse)
 async def get_sale(
     sale_id: str,
-    current_user: UserResponse = Depends(get_current_user)
+    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
 ):
     db = get_database()
     
@@ -84,7 +121,7 @@ async def get_sale(
 @router.post("", response_model=SaleResponse, status_code=status.HTTP_201_CREATED)
 async def create_sale(
     sale_data: SaleCreate,
-    current_user: UserResponse = Depends(get_current_user)
+    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
 ):
     db = get_database()
     
@@ -113,7 +150,7 @@ async def create_sale(
 @router.delete("/{sale_id}")
 async def delete_sale(
     sale_id: str,
-    current_user: UserResponse = Depends(get_current_user)
+    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
 ):
     if current_user.role.value != "ADMIN":
         raise HTTPException(

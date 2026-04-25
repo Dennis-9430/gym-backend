@@ -1,15 +1,18 @@
 # Endpoints para gestión de empleados
-# Relacionado con: models/employee.py, auth/router.py, database.py
+# Relacionado con: models/employee.py, database.py, auth/schemas.py
 """Employees router"""
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from typing import Optional, List
+from typing import Optional
 from bson import ObjectId
 from app.models.employee import (
-    EmployeeCreate, EmployeeUpdate, EmployeeResponse, 
-    EmployeeListResponse, EmployeeRole, Permission
+    EmployeeCreate, EmployeeUpdate,
+    EmployeeResponse, EmployeeListResponse,
+    EmployeeRole, EmployeeStatus
 )
+from app.models.tenant import TenantResponse
 from app.auth.router import get_current_user
-from app.auth.schemas import UserResponse, UserRole
+from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
 
 
@@ -17,268 +20,210 @@ router = APIRouter(prefix="/api/employees", tags=["Employees"])
 
 
 def serialize_employee(doc: dict) -> dict:
-    # Converte documento MongoDB a respuesta JSON
-    # Relacionado con: models/employee.py
-    """Convert MongoDB document to response"""
     if doc:
-        doc["_id"] = str(doc["_id"])
+        doc["id"] = str(doc.get("_id", ""))
+        
+        status = doc.get("status", "ACTIVE")
+        if status == "ACTIVO":
+            doc["status"] = "ACTIVE"
+        elif status == "INACTIVO":
+            doc["status"] = "INACTIVE"
+        
+        role = doc.get("role", "")
+        if role == "ENTRENADOR":
+            doc["role"] = "RECEPCIONISTA"
+        
+        if "createdAt" not in doc or doc.get("createdAt") is None:
+            doc["createdAt"] = datetime.utcnow()
+        if "updatedAt" not in doc or doc.get("updatedAt") is None:
+            doc["updatedAt"] = datetime.utcnow()
+        
+        doc.pop("_id", None)
     return doc
 
 
 @router.get("", response_model=EmployeeListResponse)
-async def list_employees(
-    # Lista empleados con paginación y filtros
-    # Relacionado con: models/employee.py (EmployeeListResponse), frontend
+async def get_employees(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    search: Optional[str] = Query(None, description="Buscar por nombre o username"),
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
-    role: Optional[EmployeeRole] = None,
-    status: Optional[str] = None,
-    current_user: UserResponse = Depends(get_current_user)
+    limit: int = Query(100, ge=1, le=500),
+    current_user: UserResponse = Depends(get_current_user),
 ):
-    """List all employees with optional filters"""
     db = get_database()
-    
     query = {}
-    if role:
-        query["role"] = role.value
-    if status:
-        query["status"] = status
+    
+    if status_filter:
+        query["status"] = status_filter
     
     total = await db[Collections.EMPLOYEES].count_documents(query)
+    
     cursor = db[Collections.EMPLOYEES].find(query).skip(skip).limit(limit)
     employees = await cursor.to_list(length=limit)
     
-    return {
-        "employees": [serialize_employee(e) for e in employees],
-        "total": total
-    }
+    if search:
+        search_lower = search.lower()
+        employees = [
+            e for e in employees
+            if search_lower in e.get("username", "").lower()
+            or search_lower in e.get("firstName", "").lower()
+            or search_lower in e.get("lastName", "").lower()
+        ]
+        total = len(employees)
+    
+    return EmployeeListResponse(
+        employees=[EmployeeResponse(**serialize_employee(e)) for e in employees],
+        total=total,
+    )
 
 
 @router.get("/{employee_id}", response_model=EmployeeResponse)
 async def get_employee(
     employee_id: str,
-    current_user: UserResponse = Depends(get_current_user)
+    current_user: UserResponse = Depends(get_current_user),
 ):
-    """Get employee by ID"""
     db = get_database()
-    
-    if not ObjectId.is_valid(employee_id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid employee ID"
-        )
-    
     employee = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
+    
     if not employee:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Employee not found"
+            detail="Empleado no encontrado"
         )
     
-    return serialize_employee(employee)
+    return EmployeeResponse(**serialize_employee(employee))
 
 
 @router.post("", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED)
 async def create_employee(
     employee_data: EmployeeCreate,
-    current_user: UserResponse = Depends(get_current_user)
+    current_user: UserResponse = Depends(get_current_user),
 ):
-    """Create new employee (Admin only)"""
-    if current_user.role != UserRole.ADMIN:
+    db = get_database()
+    if current_user.role.value not in ["ADMIN"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can create employees"
+            detail="Solo administradores pueden crear empleados"
         )
     
-    db = get_database()
-    
     existing = await db[Collections.EMPLOYEES].find_one({
-        "$or": [
-            {"username": employee_data.username},
-            {"documentNumber": employee_data.documentNumber}
-        ]
+        "username": employee_data.username
     })
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Employee with this username or document number already exists"
+            detail="El username ya existe"
         )
     
     employee_doc = employee_data.model_dump()
-    employee_doc["permissions"] = []
-    employee_doc["createdAt"] = None
-    employee_doc["updatedAt"] = None
+    employee_doc.pop("password", None)
+    employee_doc["createdAt"] = datetime.utcnow()
+    employee_doc["updatedAt"] = datetime.utcnow()
     
     result = await db[Collections.EMPLOYEES].insert_one(employee_doc)
     employee_doc["_id"] = result.inserted_id
     
-    return serialize_employee(employee_doc)
+    return EmployeeResponse(**serialize_employee(employee_doc))
 
 
 @router.put("/{employee_id}", response_model=EmployeeResponse)
 async def update_employee(
     employee_id: str,
-    employee_data: EmployeeUpdate,
-    current_user: UserResponse = Depends(get_current_user)
+    update_data: EmployeeUpdate,
+    current_user: UserResponse = Depends(get_current_user),
 ):
-    """Update employee"""
     db = get_database()
-    
-    if not ObjectId.is_valid(employee_id):
+    if current_user.role.value not in ["ADMIN", "RECEPCIONISTA"]:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid employee ID"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para actualizar empleados"
         )
     
     existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Employee not found"
+            detail="Empleado no encontrado"
         )
     
-    update_data = {k: v for k, v in employee_data.model_dump().items() if v is not None}
-    if update_data:
-        update_data["updatedAt"] = None
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    update_dict["updatedAt"] = datetime.utcnow()
     
     await db[Collections.EMPLOYEES].update_one(
         {"_id": ObjectId(employee_id)},
-        {"$set": update_data}
+        {"$set": update_dict}
     )
     
     updated = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
-    return serialize_employee(updated)
+    return EmployeeResponse(**serialize_employee(updated))
 
 
-@router.delete("/{employee_id}")
+@router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_employee(
     employee_id: str,
-    current_user: UserResponse = Depends(get_current_user)
+    current_user: UserResponse = Depends(get_current_user),
 ):
-    """Delete employee (Admin only)"""
-    if current_user.role != UserRole.ADMIN:
+    db = get_database()
+    if current_user.role.value != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can delete employees"
+            detail="Solo administradores pueden eliminar empleados"
         )
     
-    db = get_database()
-    
-    if not ObjectId.is_valid(employee_id):
+    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
+    if not existing:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid employee ID"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Empleado no encontrado"
         )
     
     result = await db[Collections.EMPLOYEES].delete_one({"_id": ObjectId(employee_id)})
-    if result.deleted_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Employee not found"
-        )
     
-    return {"message": "Employee deleted successfully"}
+    return None
 
 
-@router.put("/{employee_id}/permissions", response_model=EmployeeResponse)
-async def update_permissions(
-    employee_id: str,
-    permissions: List[Permission],
-    current_user: UserResponse = Depends(get_current_user)
-):
-    """Update employee permissions (Admin only)"""
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can update permissions"
-        )
-    
-    db = get_database()
-    
-    if not ObjectId.is_valid(employee_id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid employee ID"
-        )
-    
-    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
-    if not existing:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Employee not found"
-        )
-    
-    await db[Collections.EMPLOYEES].update_one(
-        {"_id": ObjectId(employee_id)},
-        {"$set": {"permissions": [p.model_dump() for p in permissions], "updatedAt": None}}
-    )
-    
-    updated = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
-    return serialize_employee(updated)
-
-
-# Funcion para inicializar empleados seed al iniciar la app
-# Relacionado con: main.py (lifespan)
 async def initialize_seed_employees():
-    """Inicializa empleados de ejemplo si no existen"""
+    from datetime import datetime
+    from app.auth.utils import get_password_hash
+    
     db = get_database()
     
-    # Verificar si ya hay empleados
-    existing_count = await db[Collections.EMPLOYEES].count_documents({})
-    if existing_count > 0:
+    existing = await db[Collections.EMPLOYEES].count_documents({})
+    if existing > 0:
         return
     
-    # Empleados seed para desarrollo
     seed_employees = [
         {
             "username": "admin",
-            "documentNumber": "0102030405",
+            "documentType": "CEDULA",
+            "documentNumber": "12345678",
             "firstName": "Admin",
-            "lastName": "Sistema",
+            "lastName": "Principal",
             "email": "admin@gym.com",
-            "phone": "099999999",
-            "address": "Direccion admin",
-            "notes": "Administrador del sistema",
-            "password": "admin123",
+            "phone": "099123456",
             "role": "ADMIN",
-            "status": "ACTIVO",
-            "permissions": [],
-            "createdAt": None
+            "status": "ACTIVE",
+            "tenantId": "demo-gym",
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
         },
         {
-            "username": "dennis",
-            "documentNumber": "0203040506",
-            "firstName": "Dennis",
-            "lastName": "Empleado",
-            "email": "dennis@gym.com",
-            "phone": "098888888",
-            "address": "Direccion empleado",
-            "notes": "Usuario principal",
-            "password": "123456",
+            "username": "recepcion",
+            "documentType": "CEDULA",
+            "documentNumber": "87654321",
+            "firstName": "Maria",
+            "lastName": "Gonzalez",
+            "email": "maria@gym.com",
+            "phone": "099987654",
             "role": "RECEPCIONISTA",
-            "status": "ACTIVO",
-            "permissions": [],
-            "createdAt": None
-        },
-        {
-            "username": "trainer",
-            "documentNumber": "0304050607",
-            "firstName": "Luis",
-            "lastName": "Trainer",
-            "email": "trainer@gym.com",
-            "phone": "097777777",
-            "address": "Direccion entrenador",
-            "notes": "Entrenador",
-            "password": "trainer123",
-            "role": "ENTRENADOR",
-            "status": "INACTIVO",
-            "permissions": [],
-            "createdAt": None
+            "status": "ACTIVE",
+            "tenantId": "demo-gym",
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
         },
     ]
     
-    # Insertar empleados
     for emp in seed_employees:
         await db[Collections.EMPLOYEES].insert_one(emp)
     
-    print(f"Created {len(seed_employees)} seed employees")
+    print(f"Initialized {len(seed_employees)} seed employees")

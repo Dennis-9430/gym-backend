@@ -1,16 +1,19 @@
 # Endpoints para gestión de productos
 # Relacionado con: models/product.py, auth/router.py, database.py
 """Products router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
 from typing import Optional
 from bson import ObjectId
+from jose import JWTError, jwt
 from app.models.product import (
     ProductCreate, ProductUpdate, ProductResponse, ProductListResponse
 )
+from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
 from app.utils.sanitize import sanitize_search_input
+from app.config import settings
 
 
 router = APIRouter(prefix="/api/products", tags=["Products"])
@@ -22,6 +25,45 @@ def serialize_product(doc: dict) -> dict:
     return doc
 
 
+async def get_tenant_from_header_products(authorization: str = Header(None)) -> TenantResponse:
+    """Extrae el tenant del token JWT"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token no proporcionado"
+        )
+    
+    token = authorization.replace("Bearer ", "")
+    
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        tenant_id = payload.get("tenantId")
+        
+        if not tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido"
+            )
+        
+        return TenantResponse(
+            _id=tenant_id,
+            tenantId=tenant_id,
+            email=payload.get("sub", ""),
+            businessName=payload.get("businessName", ""),
+            businessPhone=payload.get("businessPhone", ""),
+            businessAddress=payload.get("businessAddress", ""),
+            businessRuc=payload.get("businessRuc", ""),
+            plan=SubscriptionPlan.BASIC,
+            subscriptionStatus=SubscriptionStatus.ACTIVE
+        )
+    
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido"
+        )
+
+
 @router.get("", response_model=ProductListResponse)
 async def list_products(
     skip: int = Query(0, ge=0),
@@ -29,11 +71,11 @@ async def list_products(
     category: Optional[str] = None,
     search: Optional[str] = None,
     low_stock: bool = Query(False),
-    current_user: UserResponse = Depends(get_current_user)
+    tenant: TenantResponse = Depends(get_tenant_from_header_products)
 ):
     db = get_database()
     
-    query = {}
+    query = {"tenantId": tenant.tenantId}
     if category:
         query["category"] = category
     
@@ -60,7 +102,7 @@ async def list_products(
 @router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(
     product_id: str,
-    current_user: UserResponse = Depends(get_current_user)
+    tenant: TenantResponse = Depends(get_tenant_from_header_products)
 ):
     db = get_database()
     
@@ -83,7 +125,7 @@ async def get_product(
 @router.post("", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_product(
     product_data: ProductCreate,
-    current_user: UserResponse = Depends(get_current_user)
+    tenant: TenantResponse = Depends(get_tenant_from_header_products)
 ):
     db = get_database()
     
@@ -108,7 +150,7 @@ async def create_product(
 async def update_product(
     product_id: str,
     product_data: ProductUpdate,
-    current_user: UserResponse = Depends(get_current_user)
+    tenant: TenantResponse = Depends(get_tenant_from_header_products)
 ):
     db = get_database()
     
@@ -140,7 +182,7 @@ async def update_product(
 @router.delete("/{product_id}")
 async def delete_product(
     product_id: str,
-    current_user: UserResponse = Depends(get_current_user)
+    tenant: TenantResponse = Depends(get_tenant_from_header_products)
 ):
     db = get_database()
     
@@ -165,7 +207,7 @@ async def update_stock(
     product_id: str,
     quantity: int,
     operation: str = "add",
-    current_user: UserResponse = Depends(get_current_user)
+    tenant: TenantResponse = Depends(get_tenant_from_header_products)
 ):
     db = get_database()
     

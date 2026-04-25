@@ -7,12 +7,8 @@ from enum import Enum
 
 
 class UserRole(str, Enum):
-    # Roles de usuario en el sistema
-    # Relacionado con: auth/router.py, auth/service.py
-    """User roles in the system"""
     ADMIN = "ADMIN"
     RECEPCIONISTA = "RECEPCIONISTA"
-    ENTRENADOR = "ENTRENADOR"
 
 
 class TokenData(BaseModel):

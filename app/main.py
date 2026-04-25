@@ -15,6 +15,7 @@ from app.routers.sales import router as sales_router
 from app.routers.attendance import router as attendance_router
 from app.routers.reports import router as reports_router
 from app.routers.tenants import router as tenants_router
+from app.routers.notifications import router as notifications_router
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.plan_protection import PlanProtectionMiddleware
 
@@ -38,6 +39,13 @@ async def lifespan(app: FastAPI):
     # Inicializar tenant demo si no existe
     from app.routers.tenants import initialize_tenant_demo
     await initialize_tenant_demo()
+    
+    # Iniciar scheduler de notificaciones
+    from app.scheduler.jobs import start_scheduler
+    try:
+        start_scheduler()
+    except Exception as e:
+        print(f"Scheduler no iniciado: {e}")
     
     yield
     # Shutdown
@@ -101,12 +109,13 @@ app.include_router(sales_router)
 app.include_router(attendance_router)
 app.include_router(reports_router)
 app.include_router(tenants_router)
+app.include_router(notifications_router)
 
 # Rate limiting - 100 requests por minuto
 app.add_middleware(RateLimitMiddleware, rate_limit=100)
 
-# Plan protection middleware - AGREGAR ANTES para que se ejecute primero
-app.add_middleware(PlanProtectionMiddleware)
+# Plan protection middleware - DESACTIVADO TEMPORALMENTE
+# app.add_middleware(PlanProtectionMiddleware)
 
 
 

@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     DEBUG: bool = True
     
+    # Twilio - Configuración de WhatsApp
+    # Obtener de https://console.twilio.com
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_WHATSAPP_NUMBER: str = "+14155238886"  # Default Twilio sandbox
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

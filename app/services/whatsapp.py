@@ -1,11 +1,17 @@
 # Servicio de WhatsApp usando Twilio
 """WhatsApp notification service using Twilio"""
-from twilio.rest import Client
-from twilio.whatsapp import Message as TwilioMessage
 from app.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Twilio es opcional - si no está instalado, el servicio no funciona
+try:
+    from twilio.rest import Client
+    TWILIO_AVAILABLE = True
+except ImportError:
+    TWILIO_AVAILABLE = False
+    Client = None
 
 
 class WhatsAppService:
@@ -13,40 +19,34 @@ class WhatsAppService:
     
     def __init__(self):
         self.client = None
-        if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN:
-            self.client = Client(
-                settings.TWILIO_ACCOUNT_SID,
-                settings.TWILIO_AUTH_TOKEN
-            )
-            self.from_number = settings.TWILIO_WHATSAPP_NUMBER
+        self.from_number = None
+        
+        if TWILIO_AVAILABLE and settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN:
+            try:
+                self.client = Client(
+                    settings.TWILIO_ACCOUNT_SID,
+                    settings.TWILIO_AUTH_TOKEN
+                )
+                self.from_number = settings.TWILIO_WHATSAPP_NUMBER
+            except Exception as e:
+                logger.warning(f"Twilio no configurado: {e}")
     
     def is_configured(self) -> bool:
         """Verificar si Twilio está configurado"""
         return self.client is not None
     
     async def send_message(self, to_number: str, message: str) -> dict:
-        """
-        Enviar mensaje de WhatsApp
-        
-        Args:
-            to_number: Número del destinatario (formato: +595XXXXXXXX)
-            message: Mensaje a enviar
-            
-        Returns:
-            dict con status y detalles
-        """
+        """Enviar mensaje de WhatsApp"""
         if not self.is_configured():
             logger.warning("Twilio no configurado")
             return {"status": "failed", "error": "Twilio not configured"}
         
         try:
-            # Limpiar número (solo dígitos)
             clean_number = "".join(filter(str.isdigit, to_number))
             if not clean_number.startswith("595"):
                 clean_number = "595" + clean_number
             wa_number = f"+{clean_number}"
             
-            # Enviar mensaje
             twilio_msg = self.client.messages.create(
                 from_=self.from_number,
                 body=message,
@@ -66,16 +66,7 @@ class WhatsAppService:
             return {"status": "failed", "error": str(e)}
     
     async def send_bulk(self, recipients: list[dict], message: str) -> dict:
-        """
-        Enviar mensaje a múltiples destinatarios
-        
-        Args:
-            recipients: [{"phone": "...", "name": "..."}, ...]
-            message: Mensaje con variables reemplazadas
-            
-        Returns:
-            dict con resumen
-        """
+        """Enviar mensaje a múltiples destinatarios"""
         results = []
         
         for recipient in recipients:
@@ -98,21 +89,11 @@ class WhatsAppService:
     
     @staticmethod
     def format_message(template: str, variables: dict) -> str:
-        """
-        Formatear mensaje con variables
-        
-        Args:
-            template: Plantilla con variables {nombre}, {fecha}, {negocio}
-            variables: Diccionario de variables
-            
-        Returns:
-            Mensaje formateado
-        """
+        """Formatear mensaje con variables"""
         message = template
         for key, value in variables.items():
             message = message.replace(f"{{{key}}}", str(value))
         return message
 
 
-# Instancia única
 whatsapp_service = WhatsAppService()

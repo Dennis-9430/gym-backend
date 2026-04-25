@@ -4,9 +4,8 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from app.database import db
+from app.database import get_database
 from app.services.whatsapp import whatsapp_service
-from app.models.tenant import TenantResponse
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,6 +20,7 @@ COLLECTION_TENANTS = "tenants"
 
 async def get_active_clients_expiring(days_ahead: int = 3) -> list:
     """Obtener clientes con membresía por vencer"""
+    db = get_database()
     target_date = datetime.utcnow() + timedelta(days=days_ahead)
     target_date_start = target_date.replace(hour=0, minute=0, second=0)
     target_date_end = target_date.replace(hour=23, minute=59, second=59)
@@ -38,6 +38,7 @@ async def get_active_clients_expiring(days_ahead: int = 3) -> list:
 
 async def get_all_active_clients() -> list:
     """Obtener todos los clientes activos"""
+    db = get_database()
     clients = await db[COLLECTION_CLIENTS].find({
         "membershipStatus": "ACTIVE"
     }).to_list(1000)
@@ -46,6 +47,7 @@ async def get_all_active_clients() -> list:
 
 async def has_been_sent_today(client_id: str, notification_type: str) -> bool:
     """Verificar si ya se envió notificación hoy"""
+    db = get_database()
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0)
     
     log = await db[COLLECTION_LOGS].find_one({
@@ -59,6 +61,7 @@ async def has_been_sent_today(client_id: str, notification_type: str) -> bool:
 
 async def get_business_name() -> str:
     """Obtener nombre del negocio"""
+    db = get_database()
     tenant = await db[COLLECTION_TENANTS].find_one({})
     if tenant:
         return tenant.get("businessName", "Tu Gimnasio")
@@ -67,6 +70,7 @@ async def get_business_name() -> str:
 
 async def log_notification(client_id: str, notification_type: str, message: str, status: str):
     """Registrar log de notificación"""
+    db = get_database()
     await db[COLLECTION_LOGS].insert_one({
         "clientId": client_id,
         "type": notification_type,
@@ -79,17 +83,16 @@ async def log_notification(client_id: str, notification_type: str, message: str,
 async def run_expiry_job():
     """Job: Recordatorio de vencimiento (cron - 20:00 diario)"""
     logger.info("🔔 Ejecutando job de vencimiento...")
+    db = get_database()
     
-    # Obtener config
     config = await db[COLLECTION_CONFIG].find_one({"type": "expiry"})
     if not config or not config.get("enabled", True):
         logger.info("Job de vencimiento deshabilitado")
         return
     
     template = config.get("message", "")
-    expiry_days = 3  # Días antes del vencimiento
+    expiry_days = 3
     
-    # Obtener clientes por vencer
     clients = await get_active_clients_expiring(expiry_days)
     
     if not clients:
@@ -101,12 +104,10 @@ async def run_expiry_job():
     for client in clients:
         client_id = str(client.get("_id", ""))
         
-        # Verificar duplicado
         if await has_been_sent_today(client_id, "expiry"):
             logger.info(f"Cliente {client_id} ya notificado hoy")
             continue
         
-        # Preparar mensaje
         membership_end = client.get("membershipEndDate")
         fecha_str = membership_end.strftime("%d/%m/%Y") if membership_end else "pronto"
         
@@ -124,7 +125,6 @@ async def run_expiry_job():
             await log_notification(client_id, "expiry", message, "failed")
             continue
         
-        # Enviar
         result = await whatsapp_service.send_message(phone, message)
         
         status = result.get("status", "failed")
@@ -132,7 +132,6 @@ async def run_expiry_job():
         
         logger.info(f"Enviado a {client.get('firstName')}: {status}")
     
-    # Marcar como enviado hoy
     await db[COLLECTION_CONFIG].update_one(
         {"type": "expiry"},
         {"$set": {"sentToday": True, "updatedAt": datetime.utcnow()}}
@@ -142,11 +141,11 @@ async def run_expiry_job():
 async def run_scheduled_job():
     """Job: Mensajes programados (interval - cada 1 minuto)"""
     logger.info("⏰ Ejecutando job programado...")
+    db = get_database()
     
     today = datetime.utcnow().date().isoformat()
     current_time = datetime.utcnow().strftime("%H:%M")
     
-    # Obtener configs programadas para hoy
     configs = await db[COLLECTION_CONFIG].find({
         "type": "scheduled",
         "scheduledDate": today,
@@ -161,19 +160,16 @@ async def run_scheduled_job():
     clients = await get_all_active_clients()
     
     for config in configs:
-        # Verificar si es la hora
         scheduled_time = config.get("scheduledTime", "")
         if scheduled_time != current_time:
             continue
         
-        # Verificar si ya se envió
         if config.get("sentToday", False):
             logger.info(f"Msg programado ya enviado: {config.get('_id')}")
             continue
         
         template = config.get("message", "")
         
-        # Enviar a todos los activos
         sent_count = 0
         for client in clients:
             client_id = str(client.get("_id", ""))
@@ -196,7 +192,6 @@ async def run_scheduled_job():
             if result.get("status") == "success":
                 sent_count += 1
         
-        # Marcar como enviado
         await db[COLLECTION_CONFIG].update_one(
             {"_id": config["_id"]},
             {"$set": {"sentToday": True, "updatedAt": datetime.utcnow()}}
@@ -211,7 +206,6 @@ def start_scheduler():
         logger.info("Scheduler ya está corriendo")
         return
     
-    # Job 1: Expiry - Diario a las 20:00
     scheduler.add_job(
         run_expiry_job,
         CronTrigger(hour=20, minute=0),
@@ -219,7 +213,6 @@ def start_scheduler():
         replace_existing=True
     )
     
-    # Job 2: Scheduled - Cada 1 minuto
     scheduler.add_job(
         run_scheduled_job,
         IntervalTrigger(minutes=1),

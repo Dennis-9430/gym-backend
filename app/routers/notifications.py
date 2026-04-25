@@ -8,7 +8,7 @@ from app.models.notification import (
     NotificationLogResponse,
     NotificationType,
 )
-from app.database import db
+from app.database import get_database
 from datetime import datetime
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -22,6 +22,7 @@ COLLECTION_LOGS = "notification_logs"
 @router.get("/configs", response_model=list[NotificationConfigResponse])
 async def list_configs():
     """Listar todas las configuraciones"""
+    db = get_database()
     configs = await db[COLLECTION_CONFIG].find().to_list(100)
     for c in configs:
         c["_id"] = str(c["_id"])
@@ -31,6 +32,7 @@ async def list_configs():
 @router.get("/configs/{config_type}", response_model=NotificationConfigResponse)
 async def get_config(config_type: str):
     """Obtener configuración por tipo"""
+    db = get_database()
     config = await db[COLLECTION_CONFIG].find_one({"type": config_type})
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
@@ -41,20 +43,18 @@ async def get_config(config_type: str):
 @router.post("/configs")
 async def create_or_update_config(config: NotificationConfigCreate):
     """Crear o actualizar configuración"""
+    db = get_database()
     config_dict = config.model_dump()
     config_dict["updatedAt"] = datetime.utcnow()
     
-    # Verificar si existe
     existing = await db[COLLECTION_CONFIG].find_one({"type": config.type})
     
     if existing:
-        # Actualizar
         await db[COLLECTION_CONFIG].update_one(
             {"_id": existing["_id"]},
             {"$set": config_dict}
         )
     else:
-        # Crear nuevo
         config_dict["createdAt"] = datetime.utcnow()
         config_dict["sentToday"] = False
         await db[COLLECTION_CONFIG].insert_one(config_dict)
@@ -65,6 +65,7 @@ async def create_or_update_config(config: NotificationConfigCreate):
 @router.delete("/configs/{config_type}")
 async def delete_config(config_type: str):
     """Eliminar configuración"""
+    db = get_database()
     result = await db[COLLECTION_CONFIG].delete_one({"type": config_type})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Config not found")
@@ -76,6 +77,7 @@ async def delete_config(config_type: str):
 @router.get("/logs", response_model=list[NotificationLogResponse])
 async def list_logs(limit: int = 100, client_id: str = None):
     """Listar logs de notificaciones"""
+    db = get_database()
     query = {"clientId": client_id} if client_id else {}
     logs = await db[COLLECTION_LOGS].find(query).sort("sentAt", -1).to_list(limit)
     for log in logs:
@@ -86,7 +88,7 @@ async def list_logs(limit: int = 100, client_id: str = None):
 @router.get("/logs/today")
 async def get_today_logs():
     """Obtener logs de hoy"""
-    today = datetime.utcnow().date().isoformat()
+    db = get_database()
     logs = await db[COLLECTION_LOGS].find({
         "sentAt": {"$gte": datetime.utcnow().replace(hour=0, minute=0)}
     }).to_list(100)
@@ -98,7 +100,6 @@ async def get_today_logs():
 @router.post("/send/manual")
 async def send_manual_notification(client_id: str, message: str):
     """Enviar notificación manual (para testing)"""
-    # TODO: Implementar con Twilio
     return {
         "status": "sent",
         "client_id": client_id,

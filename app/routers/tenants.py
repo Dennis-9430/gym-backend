@@ -258,33 +258,54 @@ async def initialize_tenant_demo():
     """Create demo tenant if not exists"""
     from app.models.tenant import SubscriptionPlan, SubscriptionStatus
     
-    # Verificar si ya existe el tenant demo
-    existing = await db.tenants.find_one({"email": "pinzonfabricio9430@gmail.com"})
-    if existing:
-        print("Demo tenant already exists")
-        return
+    # Demo BASIC
+    existing_basic = await db.tenants.find_one({"email": "demo@gym.com"})
+    if not existing_basic:
+        demo_basic = {
+            "tenantId": "demo-basic-001",
+            "email": "demo@gym.com",
+            "password": get_password_hash("demoBasic123"),
+            "businessName": "Gimnasio Demo Basic",
+            "businessPhone": "",
+            "businessAddress": "",
+            "businessRuc": "",
+            "plan": SubscriptionPlan.BASIC,
+            "subscriptionStatus": SubscriptionStatus.ACTIVE,
+            "subscriptionEndDate": None,
+            "taxRate": 12.0,
+            "currency": "USD",
+            "openingHour": "06:00",
+            "closingHour": "22:00",
+            "wsspReminderDays": 3,
+            "wsspEnabled": False,
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        }
+        await db.tenants.insert_one(demo_basic)
+        print("Demo BASIC created: demo@gym.com / demoBasic123")
     
-    # Crear tenant demo
-    demo_tenant = {
-        "tenantId": "demo-gym-001",
-        "email": "pinzonfabricio9430@gmail.com",
-        "password": get_password_hash("adminKa123"),
-        "businessName": "Gimnasio Demo",
-        "businessPhone": "",
-        "businessAddress": "",
-        "businessRuc": "",
-        "plan": SubscriptionPlan.PREMIUM,
-        "subscriptionStatus": SubscriptionStatus.ACTIVE,
-        "subscriptionEndDate": None,  # Ilimitado para demo
-        "taxRate": 12.0,
-        "currency": "USD",
-        "openingHour": "06:00",
-        "closingHour": "22:00",
-        "wsspReminderDays": 3,
-        "wsspEnabled": False,
-        "createdAt": datetime.utcnow(),
-        "updatedAt": datetime.utcnow(),
-    }
-    
-    await db.tenants.insert_one(demo_tenant)
-    print("Demo tenant created: pinzonfabricio9430@gmail.com / adminKa123")
+    # Demo PRO
+    existing_pro = await db.tenants.find_one({"email": "demo-pro@gym.com"})
+    if not existing_pro:
+        demo_pro = {
+            "tenantId": "demo-pro-001",
+            "email": "demo-pro@gym.com",
+            "password": get_password_hash("demoPro123"),
+            "businessName": "Gimnasio Demo Pro",
+            "businessPhone": "",
+            "businessAddress": "",
+            "businessRuc": "",
+            "plan": SubscriptionPlan.PREMIUM,
+            "subscriptionStatus": SubscriptionStatus.ACTIVE,
+            "subscriptionEndDate": None,
+            "taxRate": 12.0,
+            "currency": "USD",
+            "openingHour": "06:00",
+            "closingHour": "22:00",
+            "wsspReminderDays": 3,
+            "wsspEnabled": False,
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        }
+        await db.tenants.insert_one(demo_pro)
+        print("Demo PRO created: demo-pro@gym.com / demoPro123")

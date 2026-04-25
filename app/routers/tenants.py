@@ -259,11 +259,11 @@ async def initialize_tenant_demo():
     from app.models.tenant import SubscriptionPlan, SubscriptionStatus
     
     # Demo BASIC
-    existing_basic = await db.tenants.find_one({"email": "demo@gym.com"})
+    existing_basic = await db.tenants.find_one({"email": "demo-basic@gmail.com"})
     if not existing_basic:
         demo_basic = {
             "tenantId": "demo-basic-001",
-            "email": "demo@gym.com",
+            "email": "demo-basic@gmail.com",
             "password": get_password_hash("demoBasic123"),
             "businessName": "Gimnasio Demo Basic",
             "businessPhone": "",
@@ -282,14 +282,14 @@ async def initialize_tenant_demo():
             "updatedAt": datetime.utcnow(),
         }
         await db.tenants.insert_one(demo_basic)
-        print("Demo BASIC created: demo@gym.com / demoBasic123")
+        print("Demo BASIC created: demo-basic@gmail.com / demoBasic123")
     
     # Demo PRO
-    existing_pro = await db.tenants.find_one({"email": "demo-pro@gym.com"})
+    existing_pro = await db.tenants.find_one({"email": "demo-pro@gmail.com"})
     if not existing_pro:
         demo_pro = {
             "tenantId": "demo-pro-001",
-            "email": "demo-pro@gym.com",
+            "email": "demo-pro@gmail.com",
             "password": get_password_hash("demoPro123"),
             "businessName": "Gimnasio Demo Pro",
             "businessPhone": "",

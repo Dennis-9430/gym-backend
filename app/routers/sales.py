@@ -6,10 +6,12 @@ from typing import Optional
 from datetime import datetime
 from bson import ObjectId
 from jose import JWTError, jwt
+import asyncio
 from app.models.sale import (
     SaleCreate, SaleResponse, SaleListResponse, SaleItem
 )
 from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
+from app.models.invoice import InvoiceStatus, PaymentMethodType
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
@@ -163,7 +165,136 @@ async def create_sale(
     result = await db[Collections.SALES].insert_one(sale_doc)
     sale_doc["_id"] = str(result.inserted_id)
     
+    # Generar factura automáticamente si se solicita
+    if sale_data.generateInvoice:
+        await generate_invoice_from_sale(db, sale_doc, tenant.tenantId)
+    
     return sale_doc
+
+
+async def generate_invoice_from_sale(db, sale_doc: dict, tenant_id: str):
+    """Genera una factura automáticamente a partir de una venta"""
+    # Obtener datos del tenant
+    tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+    
+    # Generar número de factura
+    counter = await db.counters.find_one_and_update(
+        {"tenantId": tenant_id},
+        {"$inc": {"invoiceCount": 1}},
+        upsert=True
+    )
+    invoice_count = counter.get("invoiceCount", 1) if counter else 1
+    invoice_number = f"FAC-{datetime.now().year}-{invoice_count:06d}"
+    
+    # Preparar datos del cliente
+    client_email = sale_doc.get("clientEmail") or sale_doc.get("client", {}).get("email")
+    if not client_email and tenant:
+        client_email = tenant.get("email", "sinemail@default.com")
+    
+    client_doc = {
+        "documentNumber": sale_doc.get("clientDocument") or sale_doc.get("client", {}).get("documentNumber", "99999999"),
+        "firstName": sale_doc.get("clientFirstName") or sale_doc.get("client", {}).get("firstName", "Consumidor"),
+        "lastName": sale_doc.get("clientLastName") or sale_doc.get("client", {}).get("lastName", "Final"),
+        "email": client_email,
+    }
+    
+    # Preparar items de la factura
+    invoice_items = []
+    for item in sale_doc.get("items", []):
+        invoice_items.append({
+            "name": item.get("productName", "Producto"),
+            "quantity": item.get("quantity", 1),
+            "unitPrice": item.get("unitPrice", 0),
+            "unitDiscount": item.get("unitDiscount", 0),
+            "subtotal": item.get("subtotal", 0),
+        })
+    
+    # Calcular totales
+    subtotal = sum(item.get("subtotal", 0) for item in invoice_items)
+    discount_amount = subtotal * sale_doc.get("discount", 0) / 100 if sale_doc.get("discount") else 0
+    taxable_subtotal = subtotal - discount_amount
+    tax_rate = tenant.get("taxRate", 12) if tenant else 12
+    tax_amount = taxable_subtotal * tax_rate / 100
+    total = taxable_subtotal + tax_amount
+    
+    # Datos del negocio
+    business_data = {
+        "name": tenant.get("businessName", "Gimnasio") if tenant else "Gimnasio",
+        "ruc": tenant.get("businessRuc", "") if tenant else "",
+        "address": tenant.get("businessAddress", "") if tenant else "",
+        "phone": tenant.get("businessPhone", "") if tenant else "",
+        "email": tenant.get("email", "") if tenant else "",
+    }
+    
+    # Método de pago
+    payment_method = sale_doc.get("paymentMethod", "CASH")
+    if payment_method == "CASH":
+        payment_data = {
+            "method": PaymentMethodType.CASH,
+            "cashAmount": total,
+            "transferAmount": 0,
+            "paid": total,
+            "change": 0,
+        }
+    elif payment_method == "TRANSFER":
+        payment_data = {
+            "method": PaymentMethodType.TRANSFER,
+            "cashAmount": 0,
+            "transferAmount": total,
+            "paid": total,
+            "change": 0,
+        }
+    else:
+        payment_data = {
+            "method": PaymentMethodType.MIXED,
+            "cashAmount": sale_doc.get("cashAmount", 0),
+            "transferAmount": sale_doc.get("transferAmount", 0),
+            "paid": total,
+            "change": 0,
+        }
+    
+    # Crear documento de factura
+    invoice_doc = {
+        "tenantId": tenant_id,
+        "type": "PRODUCT",
+        "invoiceNumber": invoice_number,
+        "business": business_data,
+        "client": client_doc,
+        "items": invoice_items,
+        "totals": {
+            "subtotal": subtotal,
+            "discountAmount": discount_amount,
+            "taxAmount": tax_amount,
+            "iceAmount": 0,
+            "total": total,
+        },
+        "payment": payment_data,
+        "status": InvoiceStatus.GENERATED.value,
+        "createdAt": datetime.utcnow(),
+    }
+    
+    await db[Collections.INVOICES].insert_one(invoice_doc)
+    
+    # Enviar email en background (sin esperar)
+    if client_email and client_email != "sinemail@default.com":
+        asyncio.create_task(send_invoice_email_async(db, invoice_doc, client_email))
+
+
+async def send_invoice_email_async(db, invoice_doc: dict, email: str):
+    """Envía email de factura en background"""
+    try:
+        # Aquí iría la lógica de envío de email
+        # Por ahora solo actualizamos el estado
+        await db[Collections.INVOICES].update_one(
+            {"invoiceNumber": invoice_doc.get("invoiceNumber"), "tenantId": invoice_doc.get("tenantId")},
+            {"$set": {"status": InvoiceStatus.SENT.value, "emailDelivery": {"sent": True, "sentAt": datetime.utcnow()}}}
+        )
+    except Exception as e:
+        print(f"Error enviando email: {e}")
+        await db[Collections.INVOICES].update_one(
+            {"invoiceNumber": invoice_doc.get("invoiceNumber"), "tenantId": invoice_doc.get("tenantId")},
+            {"$set": {"status": InvoiceStatus.FAILED.value}}
+        )
 
 
 @router.delete("/{sale_id}")

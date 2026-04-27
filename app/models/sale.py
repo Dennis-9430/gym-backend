@@ -21,9 +21,13 @@ class SaleItem(BaseModel):
     productId: Optional[str] = None
     serviceId: Optional[str] = None
     productName: str
+    description: Optional[str] = None
+    category: Optional[str] = None
     quantity: int = 1
     unitPrice: float
+    unitDiscount: float = 0.0
     subtotal: float
+    source: Optional[str] = None
 
 
 class SaleBase(BaseModel):
@@ -43,7 +47,13 @@ class SaleBase(BaseModel):
 class SaleCreate(SaleBase):
     # Datos para crear venta
     # Relacionado con: routers/sales.py (create_sale)
-    pass
+    generateInvoice: bool = False
+    clientDocument: Optional[str] = None
+    clientFirstName: Optional[str] = None
+    clientLastName: Optional[str] = None
+    clientEmail: Optional[str] = None
+    clientPhone: Optional[str] = None
+    clientAddress: Optional[str] = None
 
 
 class SaleResponse(SaleBase):

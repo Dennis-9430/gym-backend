@@ -61,6 +61,7 @@ class Collections:
     SALES = "sales"
     ATTENDANCE = "attendance"
     SERVICES = "services"
+    INVOICES = "invoices"
 
 
 async def create_indexes():

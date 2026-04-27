@@ -97,6 +97,7 @@ async def login_tenant(data: TenantLoginRequest):
     # Crear token JWT
     token_data = {
         "sub": tenant["email"],
+        "role": "ADMIN",
         "tenantId": tenant["tenantId"],
         "plan": tenant["plan"],
     }

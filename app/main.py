@@ -16,6 +16,7 @@ from app.routers.attendance import router as attendance_router
 from app.routers.reports import router as reports_router
 from app.routers.tenants import router as tenants_router
 from app.routers.notifications import router as notifications_router
+from app.routers.invoices import router as invoices_router
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.plan_protection import PlanProtectionMiddleware
 
@@ -118,6 +119,7 @@ app.include_router(attendance_router)
 app.include_router(reports_router)
 app.include_router(tenants_router)
 app.include_router(notifications_router)
+app.include_router(invoices_router)
 
 # Rate limiting - 100 requests por minuto
 app.add_middleware(RateLimitMiddleware, rate_limit=100)

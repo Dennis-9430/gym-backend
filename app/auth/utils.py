@@ -47,9 +47,16 @@ def decode_token(token: str) -> Optional[dict]:
 
 
 def create_initial_users():
-    # Define usuarios por defecto (admin/admin123, recep/recep123, trainer/trainer123)
+    # USUARIOS SEED DESHABILITADOS POR SEGURIDAD
+    # Solo crear usuarios demo si ENABLE_DEMO_SEED=true
     # Relacionado con: auth/service.py (initialize_default_users)
-    """Create initial users with hashed passwords"""
+    """Create initial users only if demo seed is enabled"""
+    import os
+    enable_seed = os.getenv("ENABLE_DEMO_SEED", "false").lower() == "true"
+    
+    if not enable_seed:
+        return {}
+    
     return {
         "admin": {
             "password_hash": get_password_hash("admin123"),
@@ -64,11 +71,6 @@ def create_initial_users():
         "entrenador": {
             "password_hash": get_password_hash("trainer123"),
             "role": "ENTRENADOR",
-            "employeeId": None
-        },
-        "dennis": {
-            "password_hash": get_password_hash("123456"),
-            "role": "RECEPCIONISTA",
             "employeeId": None
         }
     }

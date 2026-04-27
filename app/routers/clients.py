@@ -35,9 +35,7 @@ def serialize_client(doc: dict) -> dict:
 
 
 async def get_tenant_from_header(authorization: str = Header(None)) -> TenantResponse:
-    # Extrae el tenant del token JWT (acepta token de tenant)
-    print(f"DEBUG: auth header = {authorization}")
-    
+    # SEGURIDAD: Eliminar logs que expongan tokens
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -51,11 +49,9 @@ async def get_tenant_from_header(authorization: str = Header(None)) -> TenantRes
         )
     
     token = authorization.replace("Bearer ", "")
-    print(f"DEBUG: token = {token[:50]}...")
     
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        print(f"DEBUG: payload = {payload}")
         tenant_id = payload.get("tenantId")
         
         if not tenant_id:
@@ -77,8 +73,7 @@ async def get_tenant_from_header(authorization: str = Header(None)) -> TenantRes
             subscriptionStatus=SubscriptionStatus.ACTIVE
         )
     
-    except JWTError as e:
-        print(f"DEBUG JWTError: {e}")
+    except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido"
@@ -162,11 +157,7 @@ async def create_client(
             detail="Client with this document number already exists"
         )
     
-    last_client = await db[Collections.CLIENTS].find_one(sort=[("id", -1)])
-    next_id = (last_client["id"] + 1) if last_client else 1
-    
     client_doc = client_data.model_dump()
-    client_doc["id"] = next_id
     client_doc["tenantId"] = tenant.tenantId
     client_doc["createdAt"] = None
     client_doc["membershipStartDate"] = None
@@ -174,7 +165,7 @@ async def create_client(
     
     result = await db[Collections.CLIENTS].insert_one(client_doc)
     
-    return {**client_doc, "_id": next_id}
+    return {**client_doc, "_id": str(result.inserted_id)}
 
 
 @router.put("/{client_id}", response_model=ClientResponse)

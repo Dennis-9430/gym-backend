@@ -1,7 +1,7 @@
 # Esquemas Pydantic para Tenants (Gimnasios)
 # Relacionado con: routers/tenants.py, database.py
 """Tenant (Gimnasio) Pydantic schemas"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
 from datetime import datetime
 from enum import Enum
@@ -23,22 +23,22 @@ class SubscriptionStatus(str, Enum):
 
 class TenantBase(BaseModel):
     # Datos base del tenant (requeridos al registro)
-    email: str
-    businessName: str
-    businessPhone: str = ""
-    businessAddress: str = ""
-    businessRuc: str = ""
+    email: EmailStr  # Email con validación automática
+    businessName: str = Field(..., min_length=2, max_length=100)
+    businessPhone: Optional[str] = None
+    businessAddress: Optional[str] = None
+    businessRuc: Optional[str] = None
 
 
 class TenantCreate(TenantBase):
     # Datos para crear tenant nuevo (registro)
-    password: str
+    password: str = Field(..., min_length=6, max_length=100)
     plan: SubscriptionPlan = SubscriptionPlan.BASIC
 
 
 class TenantUpdate(BaseModel):
     # Datos para actualizar tenant
-    businessName: Optional[str] = None
+    businessName: Optional[str] = Field(None, min_length=2, max_length=100)
     businessPhone: Optional[str] = None
     businessAddress: Optional[str] = None
     businessRuc: Optional[str] = None

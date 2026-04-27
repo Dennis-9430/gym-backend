@@ -1,24 +1,58 @@
 # Endpoints para reportes financieros
 # Relacionado con: database.py, routers/sales.py, models/sale.py
 """Financial reports router"""
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Header, HTTPException, status
 from typing import Optional
 from datetime import datetime, timedelta
+from jose import JWTError, jwt
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
+from app.models.tenant import TenantResponse
 from app.database import get_database, Collections
+from app.config import settings
 
 
 router = APIRouter(prefix="/api/reports", tags=["Reports"])
 
 
+async def get_tenant_from_header_reports(authorization: str = Header(None)) -> TenantResponse:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token no proporcionado"
+        )
+    
+    token = authorization.replace("Bearer ", "")
+    
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        tenant_id = payload.get("tenantId")
+        
+        if not tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido"
+            )
+        
+        return TenantResponse(
+            tenantId=tenant_id,
+            name="",
+            plan="FREE",
+            status="ACTIVE"
+        )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido"
+        )
+
+
 @router.get("/financial/summary")
 async def get_financial_summary(
-    # Resume financiero por periodo (ventas, ingresos por metodo de pago)
-    # Relacionado con: database.py (Collections.SALES), models/sale.py
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    current_user: UserResponse = Depends(get_current_user)
+    current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_reports)
 ):
     db = get_database()
     
@@ -28,7 +62,7 @@ async def get_financial_summary(
     if end_date:
         date_filter["$lte"] = datetime.fromisoformat(end_date)
     
-    query = {}
+    query = {"tenantId": tenant.tenantId}
     if date_filter:
         query["createdAt"] = date_filter
     
@@ -60,7 +94,8 @@ async def get_financial_summary(
 async def get_daily_report(
     year: int,
     month: int,
-    current_user: UserResponse = Depends(get_current_user)
+    current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_reports)
 ):
     db = get_database()
     
@@ -71,6 +106,7 @@ async def get_daily_report(
         end = datetime(year, month + 1, 1)
     
     sales = await db[Collections.SALES].find({
+        "tenantId": tenant.tenantId,
         "createdAt": {"$gte": start, "$lt": end}
     }).to_list(length=10000)
     
@@ -99,15 +135,16 @@ async def get_daily_report(
 
 @router.get("/clients/summary")
 async def get_clients_summary(
-    current_user: UserResponse = Depends(get_current_user)
+    current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_reports)
 ):
     db = get_database()
     
-    total_clients = await db[Collections.CLIENTS].count_documents({})
+    total_clients = await db[Collections.CLIENTS].count_documents({"tenantId": tenant.tenantId})
     
-    active = await db[Collections.CLIENTS].count_documents({"membershipStatus": "ACTIVE"})
-    expired = await db[Collections.CLIENTS].count_documents({"membershipStatus": "EXPIRED"})
-    none = await db[Collections.CLIENTS].count_documents({"membershipStatus": "NONE"})
+    active = await db[Collections.CLIENTS].count_documents({"tenantId": tenant.tenantId, "membershipStatus": "ACTIVE"})
+    expired = await db[Collections.CLIENTS].count_documents({"tenantId": tenant.tenantId, "membershipStatus": "EXPIRED"})
+    none = await db[Collections.CLIENTS].count_documents({"tenantId": tenant.tenantId, "membershipStatus": "NONE"})
     
     return {
         "total": total_clients,
@@ -120,13 +157,15 @@ async def get_clients_summary(
 @router.get("/attendance/summary")
 async def get_attendance_summary(
     days: int = Query(7, ge=1, le=30),
-    current_user: UserResponse = Depends(get_current_user)
+    current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_reports)
 ):
     db = get_database()
     
     start_date = datetime.utcnow() - timedelta(days=days)
     
     records = await db[Collections.ATTENDANCE].find({
+        "tenantId": tenant.tenantId,
         "checkIn": {"$gte": start_date}
     }).to_list(length=10000)
     

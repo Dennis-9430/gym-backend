@@ -1,10 +1,12 @@
 # Endpoints para gestión de empleados
 # Relacionado con: models/employee.py, database.py, auth/schemas.py
+# SEGURIDAD: Todos los endpoints requieren autenticación y filtran por tenantId
 """Employees router"""
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
 from typing import Optional
 from bson import ObjectId
+from jose import JWTError, jwt
 from app.models.employee import (
     EmployeeCreate, EmployeeUpdate,
     EmployeeResponse, EmployeeListResponse,
@@ -14,9 +16,42 @@ from app.models.tenant import TenantResponse
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
+from app.config import settings
 
 
 router = APIRouter(prefix="/api/employees", tags=["Employees"])
+
+
+async def get_tenant_from_header_employees(authorization: str = Header(None)) -> TenantResponse:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token no proporcionado"
+        )
+    
+    token = authorization.replace("Bearer ", "")
+    
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        tenant_id = payload.get("tenantId")
+        
+        if not tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido"
+            )
+        
+        return TenantResponse(
+            tenantId=tenant_id,
+            name="",
+            plan="FREE",
+            status="ACTIVE"
+        )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido"
+        )
 
 
 def serialize_employee(doc: dict) -> dict:
@@ -49,9 +84,10 @@ async def get_employees(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
-    query = {}
+    query = {"tenantId": tenant.tenantId}
     
     if status_filter:
         query["status"] = status_filter
@@ -81,9 +117,10 @@ async def get_employees(
 async def get_employee(
     employee_id: str,
     current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
-    employee = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
+    employee = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
     
     if not employee:
         raise HTTPException(
@@ -98,6 +135,7 @@ async def get_employee(
 async def create_employee(
     employee_data: EmployeeCreate,
     current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
     if current_user.role.value not in ["ADMIN"]:
@@ -107,7 +145,8 @@ async def create_employee(
         )
     
     existing = await db[Collections.EMPLOYEES].find_one({
-        "username": employee_data.username
+        "username": employee_data.username,
+        "tenantId": tenant.tenantId
     })
     if existing:
         raise HTTPException(
@@ -116,6 +155,7 @@ async def create_employee(
         )
     
     employee_doc = employee_data.model_dump()
+    employee_doc["tenantId"] = tenant.tenantId
     employee_doc.pop("password", None)
     employee_doc["createdAt"] = datetime.utcnow()
     employee_doc["updatedAt"] = datetime.utcnow()
@@ -131,6 +171,7 @@ async def update_employee(
     employee_id: str,
     update_data: EmployeeUpdate,
     current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
     if current_user.role.value not in ["ADMIN", "RECEPCIONISTA"]:
@@ -139,7 +180,7 @@ async def update_employee(
             detail="No tienes permiso para actualizar empleados"
         )
     
-    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
+    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -162,6 +203,7 @@ async def update_employee(
 async def delete_employee(
     employee_id: str,
     current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
     if current_user.role.value != "ADMIN":
@@ -170,7 +212,7 @@ async def delete_employee(
             detail="Solo administradores pueden eliminar empleados"
         )
     
-    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
+    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -183,47 +225,78 @@ async def delete_employee(
 
 
 async def initialize_seed_employees():
-    from datetime import datetime
-    from app.auth.utils import get_password_hash
+    # SEGURIDAD: Solo crear si NO existe - evita duplicados
+    import os
+    enable_seed = os.getenv("ENABLE_DEMO_SEED", "false").lower() == "true"
+    
+    if not enable_seed:
+        return
     
     db = get_database()
     
-    existing = await db[Collections.EMPLOYEES].count_documents({})
-    if existing > 0:
-        return
-    
-    seed_employees = [
+    # Demo BASIC employees
+    basic_employees = [
         {
+            "tenantId": "demo-basic-001",
             "username": "admin",
             "documentType": "CEDULA",
             "documentNumber": "12345678",
             "firstName": "Admin",
             "lastName": "Principal",
-            "email": "admin@gym.com",
+            "email": "admin@demo-basic.com",
             "phone": "099123456",
             "role": "ADMIN",
             "status": "ACTIVE",
-            "tenantId": "demo-gym",
-            "createdAt": datetime.utcnow(),
-            "updatedAt": datetime.utcnow(),
         },
         {
+            "tenantId": "demo-basic-001",
             "username": "recepcion",
             "documentType": "CEDULA",
             "documentNumber": "87654321",
             "firstName": "Maria",
             "lastName": "Gonzalez",
-            "email": "maria@gym.com",
+            "email": "maria@demo-basic.com",
             "phone": "099987654",
             "role": "RECEPCIONISTA",
             "status": "ACTIVE",
-            "tenantId": "demo-gym",
-            "createdAt": datetime.utcnow(),
-            "updatedAt": datetime.utcnow(),
         },
     ]
     
-    for emp in seed_employees:
-        await db[Collections.EMPLOYEES].insert_one(emp)
+    # Solo crear si NO existe (buscar por tenantId + username)
+    for emp in basic_employees:
+        existing = await db[Collections.EMPLOYEES].find_one({
+            "tenantId": emp["tenantId"],
+            "username": emp["username"]
+        })
+        if not existing:
+            emp["createdAt"] = datetime.utcnow()
+            emp["updatedAt"] = datetime.utcnow()
+            await db[Collections.EMPLOYEES].insert_one(emp)
     
-    print(f"Initialized {len(seed_employees)} seed employees")
+    # Demo PRO employees
+    pro_employees = [
+        {
+            "tenantId": "demo-pro-001",
+            "username": "admin",
+            "documentType": "CEDULA",
+            "documentNumber": "12345678",
+            "firstName": "Admin",
+            "lastName": "Pro",
+            "email": "admin@demo-pro.com",
+            "phone": "099123456",
+            "role": "ADMIN",
+            "status": "ACTIVE",
+        },
+    ]
+    
+    for emp in pro_employees:
+        existing = await db[Collections.EMPLOYEES].find_one({
+            "tenantId": emp["tenantId"],
+            "username": emp["username"]
+        })
+        if not existing:
+            emp["createdAt"] = datetime.utcnow()
+            emp["updatedAt"] = datetime.utcnow()
+            await db[Collections.EMPLOYEES].insert_one(emp)
+    
+    print("✅ Employees seed completed")

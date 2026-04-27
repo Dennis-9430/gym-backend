@@ -8,15 +8,14 @@ from datetime import datetime
 
 class ProductBase(BaseModel):
     # Datos base del producto
-    # Relacionado con: routers/products.py, frontend
-    tenantId: str = ""  # ID del tenant (gimnasio) al que pertenece
-    code: str
-    name: str
-    description: str = ""
-    category: str = "General"
-    unitPrice: float = 0.0
-    stock: int = 0
-    minStock: int = 0
+    tenantId: str = ""
+    code: str = Field(..., min_length=1, max_length=20)
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=300)
+    category: str = Field(default="General", max_length=50)
+    unitPrice: float = Field(default=0.0, ge=0)
+    stock: int = Field(default=0, ge=0)
+    minStock: int = Field(default=0, ge=0)
 
 
 class ProductCreate(ProductBase):

@@ -118,28 +118,47 @@ async def get_sale(
     return serialize_sale(sale)
 
 
+from app.auth.router import get_current_user
+from app.auth.schemas import UserResponse
+
+
 @router.post("", response_model=SaleResponse, status_code=status.HTTP_201_CREATED)
 async def create_sale(
     sale_data: SaleCreate,
+    current_user: UserResponse = Depends(get_current_user),
     tenant: TenantResponse = Depends(get_tenant_from_header_sales)
 ):
     db = get_database()
     
     sale_doc = sale_data.model_dump()
+    sale_doc["tenantId"] = tenant.tenantId
     sale_doc["createdBy"] = current_user.username
     sale_doc["createdAt"] = datetime.utcnow()
     
     for item in sale_doc.get("items", []):
         if item.get("productId"):
             product = await db[Collections.PRODUCTS].find_one(
-                {"_id": ObjectId(item["productId"])}
+                {"_id": ObjectId(item["productId"]), "tenantId": tenant.tenantId}
             )
-            if product:
-                new_stock = product.get("stock", 0) - item.get("quantity", 1)
-                await db[Collections.PRODUCTS].update_one(
-                    {"_id": ObjectId(item["productId"])},
-                    {"$set": {"stock": new_stock}}
+            if not product:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Producto {item['productId']} no encontrado para este tenant"
                 )
+            
+            current_stock = product.get("stock", 0)
+            quantity = item.get("quantity", 1)
+            if current_stock < quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Stock insuficiente para producto {product.get('name', item['productId'])}. Disponible: {current_stock}"
+                )
+            
+            new_stock = current_stock - quantity
+            await db[Collections.PRODUCTS].update_one(
+                {"_id": ObjectId(item["productId"])},
+                {"$set": {"stock": new_stock}}
+            )
     
     result = await db[Collections.SALES].insert_one(sale_doc)
     sale_doc["_id"] = str(result.inserted_id)
@@ -150,6 +169,7 @@ async def create_sale(
 @router.delete("/{sale_id}")
 async def delete_sale(
     sale_id: str,
+    current_user: UserResponse = Depends(get_current_user),
     tenant: TenantResponse = Depends(get_tenant_from_header_sales)
 ):
     if current_user.role.value != "ADMIN":
@@ -159,6 +179,7 @@ async def delete_sale(
         )
     
     db = get_database()
+    tenant_id = tenant.tenantId
     
     if not ObjectId.is_valid(sale_id):
         raise HTTPException(
@@ -166,7 +187,7 @@ async def delete_sale(
             detail="Invalid sale ID"
         )
     
-    result = await db[Collections.SALES].delete_one({"_id": ObjectId(sale_id)})
+    result = await db[Collections.SALES].delete_one({"_id": ObjectId(sale_id), "tenantId": tenant_id})
     if result.deleted_count == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -28,6 +28,10 @@ async def lifespan(app: FastAPI):
     # Startup
     await connect_to_mongodb()
     
+    # Crear índices de base de datos
+    from app.database import create_indexes
+    await create_indexes()
+    
     # Inicializar usuarios por defecto
     from app.auth.service import initialize_default_users
     await initialize_default_users()
@@ -62,13 +66,17 @@ app = FastAPI(
 # CORS middleware - permite orígenes específicos para desarrollo
 # En producción, configurar solo el dominio del frontend
 # Relacionado con: frontend (React - puerto 3000 o 5173)
+# Para desarrollo: permitir cualquier origen
 ALLOWED_ORIGINS = [
-    "http://localhost:3000",      # React dev server
-    "http://localhost:5173",    # Vite dev server  
-    "http://localhost:8000",    # Backend local
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8000",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8000",
+    "http://192.168.100.2:3000",
+    "http://192.168.100.2:5173",
+    "http://192.168.100.2:8000",
 ]
 
 app.add_middleware(
@@ -125,7 +133,7 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "app.main:app",
-        host=settings.API_HOST,
-        port=settings.API_PORT,
-        reload=settings.DEBUG
+        host="0.0.0.0",  # Escuchar en todas las interfaces
+        port=8000,
+        reload=True
     )

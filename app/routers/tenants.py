@@ -18,6 +18,8 @@ from app.models.tenant import (
     SubscriptionStatus,
 )
 from app.auth.utils import verify_password, get_password_hash, create_access_token
+from app.auth.router import get_current_user
+from app.auth.schemas import UserResponse
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
 
@@ -107,11 +109,18 @@ async def login_tenant(data: TenantLoginRequest):
 
 
 @router.get("/me", response_model=TenantResponse)
-async def get_current_tenant(tenantId: str):
+async def get_current_tenant(current_user: UserResponse = Depends(get_current_user)):
+    # SEGURIDAD: Obtener tenant desde el token, no desde parámetro
     db = get_database()
-    # Obtener tenant actual
-    """Get current tenant info"""
-    tenant = await db.tenants.find_one({"tenantId": tenantId})
+    tenant_id = current_user.tenantId
+    
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Usuario sin tenant asociado"
+        )
+    
+    tenant = await db.tenants.find_one({"tenantId": tenant_id})
     if not tenant:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -122,15 +131,22 @@ async def get_current_tenant(tenantId: str):
 
 
 @router.put("/me", response_model=TenantResponse)
-async def update_current_tenant(data: TenantUpdate, tenantId: str):
+async def update_current_tenant(data: TenantUpdate, current_user: UserResponse = Depends(get_current_user)):
+    # SEGURIDAD: Actualizar tenant desde el token, no desde parámetro
     db = get_database()
-    # Actualizar tenant actual
-    """Update current tenant info"""
+    tenant_id = current_user.tenantId
+    
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Usuario sin tenant asociado"
+        )
+    
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     update_data["updatedAt"] = datetime.utcnow()
     
     await db.tenants.update_one(
-        {"tenantId": tenantId},
+        {"tenantId": tenant_id},
         {"$set": update_data}
     )
     
@@ -253,13 +269,13 @@ async def get_current_tenant_from_token(authorization: str = None):
 
 
 async def initialize_tenant_demo():
-    # Crea el tenant demo automáticamente si no existe
+    # SEGURIDAD: Solo crear demo si NO existe - evita duplicados
     db = get_database()
     """Create demo tenant if not exists"""
     from app.models.tenant import SubscriptionPlan, SubscriptionStatus
     
-    # Demo BASIC
-    existing_basic = await db.tenants.find_one({"email": "demo-basic@gmail.com"})
+    # Demo BASIC - buscar por tenantId, no por email
+    existing_basic = await db.tenants.find_one({"tenantId": "demo-basic-001"})
     if not existing_basic:
         demo_basic = {
             "tenantId": "demo-basic-001",
@@ -282,10 +298,10 @@ async def initialize_tenant_demo():
             "updatedAt": datetime.utcnow(),
         }
         await db.tenants.insert_one(demo_basic)
-        print("Demo BASIC created: demo-basic@gmail.com / demoBasic123")
+        print("✅ Demo BASIC created: demo-basic-001")
     
-    # Demo PRO
-    existing_pro = await db.tenants.find_one({"email": "demo-pro@gmail.com"})
+    # Demo PRO - buscar por tenantId
+    existing_pro = await db.tenants.find_one({"tenantId": "demo-pro-001"})
     if not existing_pro:
         demo_pro = {
             "tenantId": "demo-pro-001",
@@ -308,4 +324,4 @@ async def initialize_tenant_demo():
             "updatedAt": datetime.utcnow(),
         }
         await db.tenants.insert_one(demo_pro)
-        print("Demo PRO created: demo-pro@gym.com / demoPro123")
+        print("✅ Demo PRO created: demo-pro-001")

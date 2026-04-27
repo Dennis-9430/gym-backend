@@ -42,21 +42,18 @@ class UserResponse(BaseModel):
     username: str
     role: UserRole
     employeeId: Optional[str] = None
+    tenantId: Optional[str] = None
 
 
 class UserCreate(BaseModel):
     # Datos para crear nuevo usuario
-    # Relacionado con: auth/router.py (register)
-    """User creation request"""
-    username: str
-    password: str
+    username: str = Field(..., min_length=3, max_length=30)
+    password: str = Field(..., min_length=6, max_length=50)
     role: UserRole
     employeeId: Optional[str] = None
 
 
 class PasswordChange(BaseModel):
     # Datos para cambiar contraseña
-    # Relacionado con: auth/router.py (change_password)
-    """Password change request"""
-    old_password: str
-    new_password: str = Field(..., min_length=6)
+    old_password: str = Field(..., min_length=6, max_length=50)
+    new_password: str = Field(..., min_length=6, max_length=50)

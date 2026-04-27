@@ -1,6 +1,7 @@
 # Router para Notificaciones WhatsApp
+# SEGURIDAD: Todos los endpoints requieren autenticación
 """Notifications API router"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.models.notification import (
     NotificationConfigCreate,
     NotificationConfigUpdate,
@@ -9,6 +10,8 @@ from app.models.notification import (
     NotificationType,
 )
 from app.database import get_database
+from app.auth.router import get_current_user
+from app.auth.schemas import UserResponse
 from datetime import datetime
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -20,8 +23,8 @@ COLLECTION_LOGS = "notification_logs"
 # ============ CONFIG ENDPOINTS ============
 
 @router.get("/configs", response_model=list[NotificationConfigResponse])
-async def list_configs():
-    """Listar todas las configuraciones"""
+async def list_configs(current_user: UserResponse = Depends(get_current_user)):
+    """Listar todas las configuraciones - requiere auth"""
     db = get_database()
     configs = await db[COLLECTION_CONFIG].find().to_list(100)
     for c in configs:

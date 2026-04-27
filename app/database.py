@@ -61,3 +61,41 @@ class Collections:
     SALES = "sales"
     ATTENDANCE = "attendance"
     SERVICES = "services"
+
+
+async def create_indexes():
+    """Crear índices - borra y recrea para evitar conflictos"""
+    db = get_database()
+    
+    index_configs = [
+        (db[Collections.TENANTS], "tenantId", True),
+        (db[Collections.TENANTS], "email", True),
+        (db[Collections.USERS], "username", True),
+        (db[Collections.EMPLOYEES], [("tenantId", 1), ("username", 1)], True),
+        (db[Collections.CLIENTS], [("tenantId", 1), ("documentNumber", 1)], True),
+        (db[Collections.PRODUCTS], [("tenantId", 1), ("code", 1)], True),
+        (db[Collections.SALES], [("tenantId", 1), ("createdAt", -1)], False),
+        (db[Collections.ATTENDANCE], [("tenantId", 1), ("clientId", 1), ("checkIn", -1)], False),
+    ]
+    
+    for collection, keys, unique in index_configs:
+        try:
+            # Borrar índice existente con mismo nombre
+            try:
+                await collection.drop_index(keys)
+            except:
+                pass
+            # Crear nuevo
+            await collection.create_index(keys, unique=unique, background=True)
+        except Exception as e:
+            # Si hay duplicados, crear sin unique
+            if "duplicate" in str(e).lower():
+                try:
+                    await collection.drop_index(keys)
+                except:
+                    pass
+                await collection.create_index(keys, unique=False, background=True)
+            else:
+                print(f"⚠️  {collection.name}: {str(e)[:30]}")
+    
+    print("✅ Índices configurados")

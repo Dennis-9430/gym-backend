@@ -5,6 +5,7 @@ from fastapi import HTTPException, status, Request
 from fastapi.responses import JSONResponse
 from app.database import get_database
 from app.models.tenant import SubscriptionStatus
+from typing import Optional
 
 
 # Definición de características por plan
@@ -53,10 +54,10 @@ def has_feature(plan: str, feature: str) -> bool:
     return feature in features
 
 
-def check_subscription_active(tenant_id: str) -> dict:
-    """Verifica si la suscripción del tenant está activa"""
+async def check_subscription_active(tenant_id: str) -> dict:
+    """Verifica si la suscripción del tenant está activa - async"""
     db = get_database()
-    tenant = db.tenants.find_one({"tenantId": tenant_id})
+    tenant = await db.tenants.find_one({"tenantId": tenant_id})
     
     if not tenant:
         raise HTTPException(
@@ -76,6 +77,39 @@ def check_subscription_active(tenant_id: str) -> dict:
         "active": True,
         "plan": tenant.get("plan", "BASIC")
     }
+
+
+async def get_tenant_plan(tenant_id: str) -> str:
+    """Obtiene el plan de un tenant - async"""
+    db = get_database()
+    tenant = await db.tenants.find_one({"tenantId": tenant_id})
+    
+    if not tenant:
+        return "BASIC"
+    
+    return tenant.get("plan", "BASIC")
+
+
+async def get_tenant_subscription_status(tenant_id: str) -> str:
+    """Obtiene el estado de suscripción de un tenant - async"""
+    db = get_database()
+    tenant = await db.tenants.find_one({"tenantId": tenant_id})
+    
+    if not tenant:
+        return "PENDING"
+    
+    return tenant.get("subscriptionStatus", "PENDING")
+
+
+async def can_access_feature(tenant_id: str, feature: str) -> bool:
+    """Verifica si un tenant puede acceder a una característica"""
+    try:
+        sub_info = await check_subscription_active(tenant_id)
+        if not sub_info["active"]:
+            return False
+        return has_feature(sub_info["plan"], feature)
+    except HTTPException:
+        return False
 
 
 def require_plan_feature(feature: str):
@@ -122,36 +156,3 @@ def require_plan_feature(feature: str):
 def require_premium():
     """Decorator para requerir plan PREMIUM"""
     return require_plan_feature("employees:write")
-
-
-def get_tenant_plan(tenant_id: str) -> str:
-    """Obtiene el plan de un tenant"""
-    db = get_database()
-    tenant = db.tenants.find_one({"tenantId": tenant_id})
-    
-    if not tenant:
-        return "BASIC"
-    
-    return tenant.get("plan", "BASIC")
-
-
-def get_tenant_subscription_status(tenant_id: str) -> str:
-    """Obtiene el estado de suscripción de un tenant"""
-    db = get_database()
-    tenant = db.tenants.find_one({"tenantId": tenant_id})
-    
-    if not tenant:
-        return "PENDING"
-    
-    return tenant.get("subscriptionStatus", "PENDING")
-
-
-def can_access_feature(tenant_id: str, feature: str) -> bool:
-    """Verifica si un tenant puede acceder a una característica"""
-    try:
-        sub_info = check_subscription_active(tenant_id)
-        if not sub_info["active"]:
-            return False
-        return has_feature(sub_info["plan"], feature)
-    except HTTPException:
-        return False

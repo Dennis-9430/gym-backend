@@ -1,7 +1,7 @@
 # Esquemas Pydantic para clientes
 # Relacionado con: routers/clients.py, database.py
 """Client Pydantic schemas"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
 from datetime import datetime
 from enum import Enum
@@ -9,7 +9,6 @@ from enum import Enum
 
 class DocumentType(str, Enum):
     # Tipos de documento de identidad
-    # Relacionado con: routers/clients.py, frontend
     CEDULA = "CEDULA"
     PASAPORTE = "PASAPORTE"
     RUC = "RUC"
@@ -17,15 +16,12 @@ class DocumentType(str, Enum):
 
 class MembershipStatus(str, Enum):
     # Estado de membresía del cliente
-    # Relacionado con: routers/clients.py, frontend
     NONE = "NONE"
     ACTIVE = "ACTIVE"
     EXPIRED = "EXPIRED"
 
 
 class MembershipType(str, Enum):
-    # Tipos de membresía disponibles
-    # Relacionado con: routers/clients.py
     QUINCENAL = "Quincenal"
     MENSUAL = "Mensual"
     TRIMESTRAL = "Trimestral"
@@ -35,18 +31,17 @@ class MembershipType(str, Enum):
 
 class ClientBase(BaseModel):
     # Datos base del cliente (requeridos)
-    # Relacionado con: routers/clients.py, frontend
-    tenantId: str = ""  # ID del tenant (gimnasio) al que pertenece
+    tenantId: str = ""
     documentType: DocumentType = DocumentType.CEDULA
-    documentNumber: str
-    firstName: str
-    lastName: str
-    phone: str = ""
-    email: str = ""
-    address: str = ""
-    emergencyContact: str = ""
-    emergencyPhone: str = ""
-    notes: str = ""
+    documentNumber: str = Field(..., min_length=4, max_length=20)
+    firstName: str = Field(..., min_length=1, max_length=50)
+    lastName: str = Field(..., min_length=1, max_length=50)
+    phone: Optional[str] = Field(None, min_length=8, max_length=20)
+    email: Optional[EmailStr] = None
+    address: Optional[str] = Field(None, max_length=200)
+    emergencyContact: Optional[str] = Field(None, max_length=100)
+    emergencyPhone: Optional[str] = Field(None, min_length=8, max_length=20)
+    notes: Optional[str] = Field(None, max_length=500)
 
 
 class ClientCreate(ClientBase):

@@ -3,6 +3,7 @@
 """Tenant (Gym) API router"""
 from datetime import datetime, timedelta
 from uuid import uuid4
+from bson import ObjectId
 from fastapi import APIRouter, HTTPException, Depends, status
 from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -14,6 +15,8 @@ from app.models.tenant import (
     TenantResponse,
     TenantLoginRequest,
     TenantLoginResponse,
+    PasswordResetRequest,
+    PasswordResetConfirm,
     SubscriptionPlan,
     SubscriptionStatus,
 )
@@ -34,11 +37,10 @@ def serialize_tenant(doc: dict) -> dict:
 
 @router.post("/register", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
 async def register_tenant(data: TenantCreate):
-    # Registro de nuevo tenant (gimnasio)
+    # Registro de nuevo tenant (gimnasio) con owner automático
     db = get_database()
-    # Registro de nuevo tenant (gimnasio)
-    """Register a new gym tenant"""
-    # Verificar si el email ya existe
+    """Register a new gym tenant with owner"""
+    # Verificar si el email ya existe en tenants
     existing = await db.tenants.find_one({"email": data.email})
     if existing:
         raise HTTPException(
@@ -46,17 +48,19 @@ async def register_tenant(data: TenantCreate):
             detail="El correo electrónico ya está registrado"
         )
     
-    # Crear el tenant
+    # Generar tenantId único
+    tenant_id = str(uuid4())
+    
+    # Datos del tenant
     tenant_data = {
-        "tenantId": str(uuid4()),
+        "tenantId": tenant_id,
         "email": data.email,
-        "password": get_password_hash(data.password),
         "businessName": data.businessName,
         "businessPhone": data.businessPhone,
         "businessAddress": data.businessAddress or "",
         "businessRuc": data.businessRuc or "",
         "plan": data.plan,
-        "subscriptionStatus": SubscriptionStatus.PENDING,
+        "subscriptionStatus": SubscriptionStatus.ACTIVE,  # Temporal: activo inmediatamente
         "subscriptionEndDate": None,
         "taxRate": 12.0,
         "currency": "USD",
@@ -68,8 +72,41 @@ async def register_tenant(data: TenantCreate):
         "updatedAt": datetime.utcnow(),
     }
     
-    result = await db.tenants.insert_one(tenant_data)
-    tenant_data["_id"] = result.inserted_id
+    # Insertar tenant
+    tenant_result = await db.tenants.insert_one(tenant_data)
+    tenant_data["_id"] = tenant_result.inserted_id
+    
+    # Crear el OWNER automáticamente
+    owner_data = {
+        "tenantId": tenant_id,
+        "username": data.email,  # Username inicial = email
+        "documentType": "CEDULA",
+        "documentNumber": "",
+        "firstName": data.ownerFirstName,
+        "lastName": data.ownerLastName,
+        "email": data.email,  # Mismo email que tenant
+        "phone": data.businessPhone or "",
+        "role": "ADMIN",
+        "status": "ACTIVE",
+        "isOwner": True,  # Flag de owner
+        "permissions": [],
+        "createdAt": datetime.utcnow(),
+        "updatedAt": datetime.utcnow(),
+    }
+    
+    # Hashear contraseña
+    owner_data["password"] = get_password_hash(data.password)
+    
+    # Insertar employee (owner)
+    owner_result = await db.employees.insert_one(owner_data)
+    owner_id = str(owner_result.inserted_id)
+    
+    # Actualizar tenant con ownerEmployeeId
+    await db.tenants.update_one(
+        {"_id": tenant_result.inserted_id},
+        {"$set": {"ownerEmployeeId": owner_id}}
+    )
+    tenant_data["ownerEmployeeId"] = owner_id
     
     return TenantResponse(**tenant_data)
 
@@ -77,36 +114,173 @@ async def register_tenant(data: TenantCreate):
 @router.post("/login", response_model=TenantLoginResponse)
 async def login_tenant(data: TenantLoginRequest):
     db = get_database()
-    # Login de tenant por email y contraseña
-    """Login tenant with email and password"""
-    # Buscar tenant por email
-    tenant = await db.tenants.find_one({"email": data.email})
-    if not tenant:
+    """Login tenant by email or username + password"""
+    # Buscar employee por email o username
+    employee = await db.employees.find_one({
+        "$or": [
+            {"email": data.email},
+            {"username": data.email}
+        ],
+        "isActive": True
+    })
+    
+    # Si no找到 employee, buscar en tenants (backward compatibility con demos)
+    if not employee:
+        tenant = await db.tenants.find_one({"email": data.email})
+        if tenant and "password" in tenant:
+            # Es un demo/tenant antiguo - verificar contraseña
+            if verify_password(data.password, tenant["password"]):
+                # Crear employee temporal para el demo
+                employee = {
+                    "_id": str(tenant.get("_id")),
+                    "tenantId": tenant.get("tenantId"),
+                    "email": tenant.get("email"),
+                    "firstName": tenant.get("businessName", "Admin"),
+                    "lastName": "",
+                    "role": "ADMIN",
+                    "isOwner": True,
+                    "isActive": True,
+                }
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Credenciales incorrectas"
+                )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Credenciales incorrectas"
+            )
+    else:
+        # Verificar contraseña del employee
+        if not verify_password(data.password, employee["password"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Credenciales incorrectas"
+            )
+        
+        # Buscar tenant del employee
+        tenant = await db.tenants.find_one({"tenantId": employee["tenantId"]})
+        if not tenant:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Tenant no encontrado"
+            )
+    
+    # Verificar subscription activa
+    if tenant.get("subscriptionStatus") != "ACTIVE":
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales incorrectas"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Suscripción inactiva. Contacte al administrador."
         )
     
-    # Verificar contraseña
-    if not verify_password(data.password, tenant["password"]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales incorrectas"
-        )
-    
-    # Crear token JWT
+    # Crear token JWT con datos del employee
     token_data = {
-        "sub": tenant["email"],
-        "role": "ADMIN",
+        "sub": employee["email"],
+        "role": employee["role"],
         "tenantId": tenant["tenantId"],
         "plan": tenant["plan"],
+        "employeeId": str(employee["_id"]),
+        "isOwner": employee.get("isOwner", False),
     }
     access_token = create_access_token(token_data)
     
+    # Serializar tenant y agregar datos del owner desde employee
+    tenant_response = serialize_tenant(tenant)
+    tenant_response["ownerFirstName"] = employee.get("firstName", "")
+    tenant_response["ownerLastName"] = employee.get("lastName", "")
+    
     return TenantLoginResponse(
         accessToken=access_token,
-        tenant=TenantResponse(**serialize_tenant(tenant))
+        tenant=TenantResponse(**tenant_response)
     )
+
+
+# Recuperación de contraseña
+@router.post("/forgot-password")
+async def forgot_password(data: PasswordResetRequest, db: AsyncIOMotorDatabase = Depends(get_database)):
+    """Solicitar recuperación de contraseña por email"""
+    # Buscar employee por email
+    employee = await db.employees.find_one({"email": data.email})
+    if not employee:
+        # Por seguridad, no revelar si el email existe
+        return {"message": "Si el correo existe, recibirás un enlace de recuperación"}
+    
+    # Buscar tenant para verificar estado
+    tenant = await db.tenants.find_one({"tenantId": employee["tenantId"]})
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado"
+        )
+    
+    # Generar token temporal (15 minutos)
+    reset_token = create_access_token({
+        "sub": employee["email"],
+        "type": "password_reset",
+        "tenantId": tenant["tenantId"],
+        "employeeId": str(employee["_id"]),
+    }, expires_delta=timedelta(minutes=15))
+    
+    # Aquí enviarías el email con el token
+    # Por ahora, devolvemos el token (en producción usar SMTP)
+    # NOTA: En producción, enviar por email real
+    print(f"📧 Token de recuperación para {data.email}: {reset_token}")
+    
+    return {
+        "message": "Si el correo existe, recibirás un enlace de recuperación",
+        "token": reset_token  # TODO: Enviar por email en producción
+    }
+
+
+@router.post("/reset-password")
+async def reset_password(data: PasswordResetConfirm, db: AsyncIOMotorDatabase = Depends(get_database)):
+    """Cambiar contraseña con token de recuperación"""
+    try:
+        # Decodificar token
+        payload = jwt.decode(data.token, settings.SECRET_KEY, algorithms=["HS256"])
+        if payload.get("type") != "password_reset":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token inválido"
+            )
+        
+        employee_id = payload.get("employeeId")
+        tenant_id = payload.get("tenantId")
+        
+        # Buscar employee
+        employee = await db.employees.find_one({
+            "_id": ObjectId(employee_id),
+            "tenantId": tenant_id
+        })
+        if not employee:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Usuario no encontrado"
+            )
+        
+        # Validar que no sea owner (no puede cambiar password así)
+        # El owner debe cambiar desde su perfil
+        if employee.get("isOwner", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Los owners deben cambiar contraseña desde su perfil"
+            )
+        
+        # Actualizar contraseña
+        new_password_hash = get_password_hash(data.newPassword)
+        await db.employees.update_one(
+            {"_id": ObjectId(employee_id)},
+            {"$set": {"password": new_password_hash, "updatedAt": datetime.utcnow()}}
+        )
+        
+        return {"message": "Contraseña actualizada correctamente"}
+        
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token inválido o expirado"
+        )
 
 
 @router.get("/me", response_model=TenantResponse)

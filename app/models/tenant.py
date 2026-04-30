@@ -28,12 +28,18 @@ class TenantBase(BaseModel):
     businessPhone: Optional[str] = None
     businessAddress: Optional[str] = None
     businessRuc: Optional[str] = None
+    # Referencia al owner principal (employee)
+    ownerEmployeeId: Optional[str] = None
 
 
 class TenantCreate(TenantBase):
     # Datos para crear tenant nuevo (registro)
+    # Incluye datos del owner principal
     password: str = Field(..., min_length=6, max_length=100)
     plan: SubscriptionPlan = SubscriptionPlan.BASIC
+    # Datos del owner
+    ownerFirstName: str  # Nombre del owner
+    ownerLastName: str   # Apellido del owner
 
 
 class TenantUpdate(BaseModel):
@@ -62,6 +68,9 @@ class TenantResponse(TenantBase):
     wsspEnabled: bool = False
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
+    # Datos del owner para el frontend
+    ownerFirstName: Optional[str] = None
+    ownerLastName: Optional[str] = None
 
     class Config:
         populate_by_name = True
@@ -71,6 +80,15 @@ class TenantLoginRequest(BaseModel):
     # Solicitud de login del tenant
     email: str
     password: str
+
+
+class PasswordResetRequest(BaseModel):
+    email: str
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    newPassword: str
 
 
 class TenantLoginResponse(BaseModel):

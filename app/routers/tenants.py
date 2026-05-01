@@ -87,15 +87,12 @@ async def register_tenant(data: TenantCreate):
         "email": data.email,  # Mismo email que tenant
         "phone": data.businessPhone or "",
         "role": "ADMIN",
-        "status": "ACTIVE",
+        "isActive": True,
         "isOwner": True,  # Flag de owner
-        "permissions": [],
+        "password": get_password_hash(data.password),  # Hashear contraseña
         "createdAt": datetime.utcnow(),
         "updatedAt": datetime.utcnow(),
     }
-    
-    # Hashear contraseña
-    owner_data["password"] = get_password_hash(data.password)
     
     # Insertar employee (owner)
     owner_result = await db.employees.insert_one(owner_data)
@@ -107,6 +104,7 @@ async def register_tenant(data: TenantCreate):
         {"$set": {"ownerEmployeeId": owner_id}}
     )
     tenant_data["ownerEmployeeId"] = owner_id
+    tenant_data["_id"] = str(tenant_data["_id"])
     
     return TenantResponse(**tenant_data)
 
@@ -325,7 +323,7 @@ async def update_current_tenant(data: TenantUpdate, current_user: UserResponse =
         {"$set": update_data}
     )
     
-    tenant = await db.tenants.find_one({"tenantId": tenantId})
+    tenant = await db.tenants.find_one({"tenantId": tenant_id})
     if not tenant:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

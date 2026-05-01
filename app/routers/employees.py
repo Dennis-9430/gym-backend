@@ -15,6 +15,7 @@ from app.models.employee import (
 from app.models.tenant import TenantResponse
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
+from app.auth.utils import get_password_hash
 from app.database import get_database, Collections
 from app.config import settings
 
@@ -57,6 +58,10 @@ async def get_tenant_from_header_employees(authorization: str = Header(None)) ->
 def serialize_employee(doc: dict) -> dict:
     if doc:
         doc["id"] = str(doc.get("_id", ""))
+        
+        # Asegurar que isOwner exista en la respuesta
+        if "isOwner" not in doc:
+            doc["isOwner"] = False
         
         status = doc.get("status", "ACTIVE")
         if status == "ACTIVO":
@@ -187,6 +192,17 @@ async def update_employee(
             detail="Empleado no encontrado"
         )
     
+    # PROTECCIÓN: El OWNER no puede cambiarse a sí mismo - email, role, status
+    if existing.get("isOwner", False):
+        # El owner solo puede cambiar: firstName, lastName, phone, permissions
+        protected_fields = ["email", "role", "status", "isOwner"]
+        for field in protected_fields:
+            if field in update_data.model_dump() and update_data.model_dump()[field] is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"No puedes modificar el campo {field} del owner"
+                )
+    
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     update_dict["updatedAt"] = datetime.utcnow()
     
@@ -219,6 +235,13 @@ async def delete_employee(
             detail="Empleado no encontrado"
         )
     
+    # PROTECCIÓN: El OWNER no puede eliminarse
+    if existing.get("isOwner", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No puedes eliminar al owner principal"
+        )
+    
     result = await db[Collections.EMPLOYEES].delete_one({"_id": ObjectId(employee_id)})
     
     return None
@@ -242,11 +265,13 @@ async def initialize_seed_employees():
             "documentType": "CEDULA",
             "documentNumber": "12345678",
             "firstName": "Admin",
-            "lastName": "Principal",
-            "email": "admin@demo-basic.com",
+            "lastName": "Basic",
+            "email": "demo-basic@gmail.com",
             "phone": "099123456",
             "role": "ADMIN",
             "status": "ACTIVE",
+            "isOwner": True,  # Owner del demo basic
+            "password": "demoBasic123",  # Contraseña hasheada se genera después
         },
         {
             "tenantId": "demo-basic-001",
@@ -259,6 +284,7 @@ async def initialize_seed_employees():
             "phone": "099987654",
             "role": "RECEPCIONISTA",
             "status": "ACTIVE",
+            "isOwner": False,
         },
     ]
     
@@ -269,6 +295,10 @@ async def initialize_seed_employees():
             "username": emp["username"]
         })
         if not existing:
+            # Hashear contraseña antes de guardar
+            if "password" in emp:
+                emp["password"] = get_password_hash(emp["password"])
+                del emp["password"]  # Quitar clave original después de hashear
             emp["createdAt"] = datetime.utcnow()
             emp["updatedAt"] = datetime.utcnow()
             await db[Collections.EMPLOYEES].insert_one(emp)
@@ -282,10 +312,12 @@ async def initialize_seed_employees():
             "documentNumber": "12345678",
             "firstName": "Admin",
             "lastName": "Pro",
-            "email": "admin@demo-pro.com",
+            "email": "demo-pro@gmail.com",
             "phone": "099123456",
             "role": "ADMIN",
             "status": "ACTIVE",
+            "isOwner": True,  # Owner del demo pro
+            "password": "demoPro123",
         },
     ]
     
@@ -295,6 +327,10 @@ async def initialize_seed_employees():
             "username": emp["username"]
         })
         if not existing:
+            # Hashear contraseña antes de guardar
+            if "password" in emp:
+                emp["password"] = get_password_hash(emp["password"])
+                del emp["password"]  # Quitar clave original después de hashear
             emp["createdAt"] = datetime.utcnow()
             emp["updatedAt"] = datetime.utcnow()
             await db[Collections.EMPLOYEES].insert_one(emp)

@@ -9,10 +9,15 @@ from enum import Enum
 
 class PaymentMethod(str, Enum):
     # Métodos de pago disponibles
-    # Relacionado con: routers/sales.py, frontend
     CASH = "CASH"
-    CARD = "CARD"
     TRANSFER = "TRANSFER"
+    DEPOSIT = "DEPOSIT"
+
+
+class PaymentStatus(str, Enum):
+    # Estado del pago
+    PENDING = "pending"
+    VERIFIED = "verified"
 
 
 class SaleItem(BaseModel):
@@ -39,6 +44,9 @@ class SaleBase(BaseModel):
     tax: float = 0.0
     total: float
     paymentMethod: PaymentMethod = PaymentMethod.CASH
+    paymentStatus: PaymentStatus = PaymentStatus.VERIFIED
+    voucherCode: Optional[str] = None
+    voucherImage: Optional[str] = None  # Imagen del comprobante (base64)
     clientId: Optional[int] = None
     clientName: Optional[str] = None
     notes: str = ""
@@ -54,6 +62,7 @@ class SaleCreate(SaleBase):
     clientEmail: Optional[str] = None
     clientPhone: Optional[str] = None
     clientAddress: Optional[str] = None
+    invoiceEmail: Optional[str] = None
 
 
 class SaleResponse(SaleBase):

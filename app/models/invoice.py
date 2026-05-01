@@ -125,3 +125,4 @@ class InvoiceEmailRequest(BaseModel):
 class InvoiceEmailResponse(BaseModel):
     success: bool
     message: str
+    

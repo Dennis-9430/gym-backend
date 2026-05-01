@@ -8,10 +8,11 @@ from bson import ObjectId
 from jose import JWTError, jwt
 import asyncio
 from app.models.sale import (
-    SaleCreate, SaleResponse, SaleListResponse, SaleItem
+    SaleCreate, SaleResponse, SaleListResponse, SaleItem, PaymentMethod
 )
 from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.models.invoice import InvoiceStatus, PaymentMethodType
+from app.models.sale import PaymentStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
@@ -137,6 +138,18 @@ async def create_sale(
     sale_doc["createdBy"] = current_user.username
     sale_doc["createdAt"] = datetime.utcnow()
     
+    # Establecer paymentStatus automáticamente
+    payment_method = sale_data.paymentMethod.value if sale_data.paymentMethod else "CASH"
+    voucher = sale_doc.get("voucherCode")
+    
+    # Efectivo = verificado, Transferencia/Depósito sin voucher = pendiente
+    if payment_method == "CASH":
+        sale_doc["paymentStatus"] = "verified"
+    elif voucher and voucher.strip():
+        sale_doc["paymentStatus"] = "verified"
+    else:
+        sale_doc["paymentStatus"] = "pending"
+    
     for item in sale_doc.get("items", []):
         if item.get("productId"):
             product = await db[Collections.PRODUCTS].find_one(
@@ -165,14 +178,14 @@ async def create_sale(
     result = await db[Collections.SALES].insert_one(sale_doc)
     sale_doc["_id"] = str(result.inserted_id)
     
-    # Generar factura automáticamente si se solicita
+    # Generar factura solo si checkbox marcado
     if sale_data.generateInvoice:
-        await generate_invoice_from_sale(db, sale_doc, tenant.tenantId)
+        await generate_invoice_from_sale(db, sale_doc, tenant.tenantId, sale_data.invoiceEmail)
     
     return sale_doc
 
 
-async def generate_invoice_from_sale(db, sale_doc: dict, tenant_id: str):
+async def generate_invoice_from_sale(db, sale_doc: dict, tenant_id: str, invoice_email: Optional[str] = None):
     """Genera una factura automáticamente a partir de una venta"""
     # Obtener datos del tenant
     tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
@@ -186,10 +199,12 @@ async def generate_invoice_from_sale(db, sale_doc: dict, tenant_id: str):
     invoice_count = counter.get("invoiceCount", 1) if counter else 1
     invoice_number = f"FAC-{datetime.now().year}-{invoice_count:06d}"
     
-    # Preparar datos del cliente
-    client_email = sale_doc.get("clientEmail") or sale_doc.get("client", {}).get("email")
-    if not client_email and tenant:
-        client_email = tenant.get("email", "sinemail@default.com")
+    # Preparar datos del cliente - usar invoiceEmail proveído o del cliente o null
+    # Si invoiceEmail viene null, guardar como null (no usar default)
+    client_email = invoice_email if invoice_email else sale_doc.get("clientEmail") or sale_doc.get("client", {}).get("email")
+    # Si no hay email y es consumidor final, guardar null
+    if not client_email or client_email == "sinemail@default.com":
+        client_email = None
     
     client_doc = {
         "documentNumber": sale_doc.get("clientDocument") or sale_doc.get("client", {}).get("documentNumber", "99999999"),
@@ -326,3 +341,61 @@ async def delete_sale(
         )
     
     return {"message": "Sale deleted successfully"}
+
+
+@router.put("/{sale_id}/voucher")
+async def update_voucher(
+    sale_id: str,
+    voucher_data: dict,
+    current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
+):
+    """Actualiza voucher y/o imagen del comprobante - Todos pueden usar"""
+    db = get_database()
+    
+    if not ObjectId.is_valid(sale_id):
+        raise HTTPException(status_code=400, detail="Invalid sale ID")
+    
+    update_data = {}
+    if "voucherCode" in voucher_data:
+        update_data["voucherCode"] = voucher_data["voucherCode"]
+    if "voucherImage" in voucher_data:
+        update_data["voucherImage"] = voucher_data["voucherImage"]
+    
+    # Si se proporciona voucher, cambia estado a verificado
+    if voucher_data.get("voucherCode"):
+        update_data["paymentStatus"] = "verified"
+    
+    if update_data:
+        await db[Collections.SALES].update_one(
+            {"_id": ObjectId(sale_id), "tenantId": tenant.tenantId},
+            {"$set": update_data}
+        )
+    
+    return {"message": "Voucher actualizado"}
+
+
+@router.put("/{sale_id}/verify")
+async def verify_payment(
+    sale_id: str,
+    current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
+):
+    """Marca pago como verificado - Solo ADMIN"""
+    if current_user.role.value != "ADMIN":
+        raise HTTPException(
+            status_code=403,
+            detail="Solo administradores pueden verificar pagos"
+        )
+    
+    db = get_database()
+    
+    if not ObjectId.is_valid(sale_id):
+        raise HTTPException(status_code=400, detail="Invalid sale ID")
+    
+    await db[Collections.SALES].update_one(
+        {"_id": ObjectId(sale_id), "tenantId": tenant.tenantId},
+        {"$set": {"paymentStatus": "verified"}}
+    )
+    
+    return {"message": "Pago verificado"}

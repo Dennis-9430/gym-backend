@@ -43,6 +43,7 @@ class EmployeeBase(BaseModel):
     phone: str
     role: EmployeeRole
     status: EmployeeStatus = EmployeeStatus.ACTIVE
+    isOwner: bool = False  # Indica si es el owner principal del tenant
 
 
 class EmployeeCreate(EmployeeBase):
@@ -77,6 +78,17 @@ class EmployeeResponse(EmployeeBase):
 
     class Config:
         populate_by_name = True
+
+
+# Esquema para crear owner desde register (sin username inicial)
+class OwnerCreate(BaseModel):
+    # Datos para crear owner durante registro del tenant
+    # No requiere username - se configura después
+    """Owner creation schema for tenant register"""
+    firstName: str
+    lastName: str
+    email: str
+    password: str
 
 
 class EmployeeListResponse(BaseModel):

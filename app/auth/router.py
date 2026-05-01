@@ -67,6 +67,37 @@ async def logout(current_user: UserResponse = Depends(get_current_user)):
     return {"message": "Logged out successfully"}
 
 
+@router.post("/verify-password")
+async def verify_password(
+    password_data: dict,
+    current_user: UserResponse = Depends(get_current_user)
+):
+    # Verifica que la contraseña proporcionada coincida con la del usuario actual
+    # Relacionado con: auth/utils.py (verify_password)
+    """Verify current user password"""
+    from app.auth.utils import verify_password as verify_pwd
+    from app.database import get_database, Collections
+    
+    db = get_database()
+    user_doc = await db[Collections.USERS].find_one({"username": current_user.username.lower()})
+    
+    if not user_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    password = password_data.get("password", "")
+    if not verify_pwd(password, user_doc["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    return {"valid": True}
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: UserResponse = Depends(get_current_user)):
     # Retorna información del usuario actual

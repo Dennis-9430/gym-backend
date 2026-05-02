@@ -4,10 +4,11 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 from bson import ObjectId
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Header
+from pydantic import BaseModel
 from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from app.database import get_database
+from app.database import get_database, Collections
 from app.config import settings
 from app.models.tenant import (
     TenantCreate,
@@ -20,11 +21,67 @@ from app.models.tenant import (
     SubscriptionPlan,
     SubscriptionStatus,
 )
+from app.models.employee import EmployeeResponse, EmployeeUpdate
 from app.auth.utils import verify_password, get_password_hash, create_access_token
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
+
+
+class TenantInfo(BaseModel):
+    tenantId: str
+    name: str = ""
+    plan: str = "BASIC"
+    status: str = "ACTIVE"
+
+
+async def get_tenant_from_header_tenants(authorization: str = Header(None)) -> TenantInfo:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token no proporcionado"
+        )
+    
+    token = authorization.replace("Bearer ", "")
+    
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        tenant_id = payload.get("tenantId")
+        plan = payload.get("plan", "BASIC")
+        
+        if not tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido"
+            )
+        
+        return TenantInfo(
+            tenantId=tenant_id,
+            plan=plan
+        )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido"
+        )
+
+
+def serialize_employee(doc: dict) -> dict:
+    if doc:
+        doc["_id"] = str(doc.get("_id", ""))
+        doc["id"] = str(doc.get("_id", ""))
+        if "isOwner" not in doc:
+            doc["isOwner"] = False
+        status = doc.get("status", "ACTIVE")
+        if status == "ACTIVO":
+            doc["status"] = "ACTIVE"
+        elif status == "INACTIVO":
+            doc["status"] = "INACTIVE"
+        role = doc.get("role", "ADMIN")
+        if role in ["OWNER", "PROPIETARIO"]:
+            doc["role"] = "ADMIN"
+    return doc
 
 
 def serialize_tenant(doc: dict) -> dict:
@@ -114,17 +171,23 @@ async def login_tenant(data: TenantLoginRequest):
     db = get_database()
     """Login tenant by email or username + password"""
     # Buscar employee por email o username
+    login_query = data.email.strip().lower()
     employee = await db.employees.find_one({
         "$or": [
-            {"email": data.email},
-            {"username": data.email}
+            {"email": login_query},
+            {"username": login_query}
         ],
         "isActive": True
     })
     
     # Si no找到 employee, buscar en tenants (backward compatibility con demos)
     if not employee:
-        tenant = await db.tenants.find_one({"email": data.email})
+        tenant = await db.tenants.find_one({
+            "$or": [
+                {"email": login_query},
+                {"email": data.email}
+            ]
+        })
         if tenant and "password" in tenant:
             # Es un demo/tenant antiguo - verificar contraseña
             if verify_password(data.password, tenant["password"]):
@@ -187,6 +250,7 @@ async def login_tenant(data: TenantLoginRequest):
     tenant_response = serialize_tenant(tenant)
     tenant_response["ownerFirstName"] = employee.get("firstName", "")
     tenant_response["ownerLastName"] = employee.get("lastName", "")
+    tenant_response["ownerUsername"] = employee.get("username", "")
     
     return TenantLoginResponse(
         accessToken=access_token,
@@ -401,6 +465,101 @@ async def get_plans():
             }
         ]
     }
+
+
+@router.put("/owner", response_model=EmployeeResponse)
+async def update_owner(
+    update_data: EmployeeUpdate,
+    current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantInfo = Depends(get_tenant_from_header_tenants)
+):
+    """Actualizar datos del owner (solo el propio owner puede actualizarse)"""
+    db = get_database()
+    
+    if not current_user.isOwner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el owner puede actualizar sus datos"
+        )
+    
+    owner_employee_id = current_user.employeeId
+    if not owner_employee_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se encontró el ID del owner"
+        )
+    
+    owner = await db[Collections.EMPLOYEES].find_one({
+        "_id": ObjectId(owner_employee_id),
+        "tenantId": tenant.tenantId
+    })
+    
+    if not owner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Owner no encontrado"
+        )
+    
+    # Campos protegidos - no se pueden cambiar
+    protected_fields = ["email", "role", "status", "isOwner", "tenantId"]
+    update_dict = update_data.model_dump(exclude_unset=True)
+    
+    for field in protected_fields:
+        if field in update_dict:
+            del update_dict[field]
+    
+    # Campos permitidos para el owner
+    allowed_fields = ["firstName", "lastName", "phone", "address", "documentNumber", "documentType", "notes", "username", "password"]
+    final_update = {k: v for k, v in update_dict.items() if k in allowed_fields and v is not None}
+    
+    if not final_update:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se proporcionaron campos válidos para actualizar"
+        )
+    
+    if "password" in final_update:
+        final_update["password"] = get_password_hash(final_update["password"])
+    
+    final_update["updatedAt"] = datetime.utcnow()
+    
+    await db[Collections.EMPLOYEES].update_one(
+        {"_id": ObjectId(owner_employee_id), "tenantId": tenant.tenantId},
+        {"$set": final_update}
+    )
+    
+    updated_owner = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(owner_employee_id)})
+    
+    return EmployeeResponse(**serialize_employee(updated_owner))
+
+
+@router.get("/owner", response_model=EmployeeResponse)
+async def get_owner(
+    current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantInfo = Depends(get_tenant_from_header_tenants)
+):
+    """Obtener datos del owner actual"""
+    db = get_database()
+    
+    owner_employee_id = current_user.employeeId
+    if not owner_employee_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se encontró el ID del owner"
+        )
+    
+    owner = await db[Collections.EMPLOYEES].find_one({
+        "_id": ObjectId(owner_employee_id),
+        "tenantId": tenant.tenantId
+    })
+    
+    if not owner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Owner no encontrado"
+        )
+    
+    return EmployeeResponse(**serialize_employee(owner))
 
 
 async def get_current_tenant_from_token(authorization: str = None):

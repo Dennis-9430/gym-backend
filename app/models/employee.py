@@ -63,6 +63,10 @@ class EmployeeUpdate(BaseModel):
     lastName: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
     role: Optional[EmployeeRole] = None
     status: Optional[EmployeeStatus] = None
 

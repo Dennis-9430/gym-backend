@@ -1,9 +1,9 @@
 # Rutas de autenticación (login, register, logout)
 # Relacionado con: auth/service.py, auth/schemas.py, auth/utils.py
 """Authentication router"""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from typing import Optional
+from typing import Optional, List
 from app.auth.schemas import Token, UserResponse, UserCreate, PasswordChange
 from app.auth.service import authenticate_user, create_token, get_user_by_username, initialize_default_users
 from app.auth.utils import get_password_hash, decode_token
@@ -30,6 +30,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
     
     username: str = payload.get("sub")
     role: str = payload.get("role")
+    employee_id: Optional[str] = payload.get("employeeId")
+    tenant_id: Optional[str] = payload.get("tenantId")
+    is_owner: Optional[bool] = payload.get("isOwner", False)
+    plan: Optional[str] = payload.get("plan")
     
     if username is None or role is None:
         raise HTTPException(
@@ -38,7 +42,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    return UserResponse(username=username, role=UserRole(role))
+    return UserResponse(
+        username=username,
+        role=UserRole(role),
+        employeeId=employee_id,
+        tenantId=tenant_id,
+        isOwner=is_owner,
+        plan=plan
+    )
 
 
 @router.post("/login", response_model=Token)
@@ -70,29 +81,58 @@ async def logout(current_user: UserResponse = Depends(get_current_user)):
 @router.post("/verify-password")
 async def verify_password(
     password_data: dict,
-    current_user: UserResponse = Depends(get_current_user)
+    authorization: str = Header(None)
 ):
-    # Verifica que la contraseña proporcionada coincida con la del usuario actual
-    # Relacionado con: auth/utils.py (verify_password)
-    """Verify current user password"""
-    from app.auth.utils import verify_password as verify_pwd
+    from app.auth.utils import verify_password as verify_pwd, decode_token
     from app.database import get_database, Collections
     
-    db = get_database()
-    user_doc = await db[Collections.USERS].find_one({"username": current_user.username.lower()})
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token no proporcionado"
+        )
     
-    if not user_doc:
+    token = authorization.replace("Bearer ", "")
+    payload = decode_token(token)
+    
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido"
+        )
+    
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token sin usuario"
+        )
+    
+    db = get_database()
+    
+    employee = await db[Collections.EMPLOYEES].find_one({
+        "email": username.lower()
+    })
+    
+    if not employee:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="Usuario no encontrado"
         )
     
     password = password_data.get("password", "")
-    if not verify_pwd(password, user_doc["password_hash"]):
+    stored_password = employee.get("password", "")
+    
+    if not stored_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El usuario no tiene contraseña configurada"
+        )
+    
+    if not verify_pwd(password, stored_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect password",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="Contraseña incorrecta",
         )
     
     return {"valid": True}

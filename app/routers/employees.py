@@ -12,7 +12,7 @@ from app.models.employee import (
     EmployeeResponse, EmployeeListResponse,
     EmployeeRole, EmployeeStatus
 )
-from app.models.tenant import TenantResponse
+from pydantic import BaseModel
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.auth.utils import get_password_hash
@@ -23,7 +23,14 @@ from app.config import settings
 router = APIRouter(prefix="/api/employees", tags=["Employees"])
 
 
-async def get_tenant_from_header_employees(authorization: str = Header(None)) -> TenantResponse:
+class TenantInfo(BaseModel):
+    tenantId: str
+    name: str = ""
+    plan: str = "BASIC"
+    status: str = "ACTIVE"
+
+
+async def get_tenant_from_header_employees(authorization: str = Header(None)) -> TenantInfo:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -35,6 +42,7 @@ async def get_tenant_from_header_employees(authorization: str = Header(None)) ->
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         tenant_id = payload.get("tenantId")
+        plan = payload.get("plan", "BASIC")
         
         if not tenant_id:
             raise HTTPException(
@@ -42,11 +50,9 @@ async def get_tenant_from_header_employees(authorization: str = Header(None)) ->
                 detail="Token inválido"
             )
         
-        return TenantResponse(
+        return TenantInfo(
             tenantId=tenant_id,
-            name="",
-            plan="FREE",
-            status="ACTIVE"
+            plan=plan
         )
     except JWTError:
         raise HTTPException(
@@ -89,7 +95,7 @@ async def get_employees(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_employees)
+    tenant: TenantInfo = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
     query = {"tenantId": tenant.tenantId}
@@ -122,7 +128,7 @@ async def get_employees(
 async def get_employee(
     employee_id: str,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_employees)
+    tenant: TenantInfo = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
     employee = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
@@ -140,7 +146,7 @@ async def get_employee(
 async def create_employee(
     employee_data: EmployeeCreate,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_employees)
+    tenant: TenantInfo = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
     if current_user.role.value not in ["ADMIN"]:
@@ -176,14 +182,34 @@ async def update_employee(
     employee_id: str,
     update_data: EmployeeUpdate,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_employees)
+    tenant: TenantInfo = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
-    if current_user.role.value not in ["ADMIN", "RECEPCIONISTA"]:
+    
+    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Empleado no encontrado"
+        )
+    
+    # PROTECCIÓN: Solo ADMIN puede editar, RECEPCIONISTA no puede editar empleados
+    if current_user.role.value == "RECEPCIONISTA":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para actualizar empleados"
+            detail="Los recepcionistas no pueden editar empleados"
         )
+    
+    # PROTECCIÓN: El OWNER no puede cambiarse a sí mismo - email, role, status
+    if existing.get("isOwner", False):
+        protected_fields = ["email", "role", "status", "isOwner", "tenantId"]
+        update_dict_protected = update_data.model_dump(exclude_unset=True)
+        for field in protected_fields:
+            if field in update_dict_protected and update_dict_protected[field] is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"No puedes modificar el campo {field} del owner"
+                )
     
     existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
     if not existing:
@@ -206,6 +232,19 @@ async def update_employee(
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     update_dict["updatedAt"] = datetime.utcnow()
     
+    # Validar username único si se está cambiando
+    if "username" in update_dict and update_dict["username"]:
+        existing_username = await db[Collections.EMPLOYEES].find_one({
+            "username": update_dict["username"],
+            "tenantId": tenant.tenantId,
+            "_id": {"$ne": ObjectId(employee_id)}
+        })
+        if existing_username:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El username ya existe en este negocio"
+            )
+    
     await db[Collections.EMPLOYEES].update_one(
         {"_id": ObjectId(employee_id)},
         {"$set": update_dict}
@@ -219,7 +258,7 @@ async def update_employee(
 async def delete_employee(
     employee_id: str,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_employees)
+    tenant: TenantInfo = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
     if current_user.role.value != "ADMIN":

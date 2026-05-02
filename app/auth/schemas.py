@@ -43,6 +43,8 @@ class UserResponse(BaseModel):
     role: UserRole
     employeeId: Optional[str] = None
     tenantId: Optional[str] = None
+    isOwner: Optional[bool] = None
+    plan: Optional[str] = None
 
 
 class UserCreate(BaseModel):

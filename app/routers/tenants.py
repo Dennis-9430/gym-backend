@@ -194,17 +194,16 @@ async def register_tenant(data: TenantCreate):
 async def login_tenant(data: TenantLoginRequest):
     db = get_database()
     """Login tenant by email or username + password"""
-    # Buscar employee por email o username
+    # Buscar employee por email o username (SIN filtro de status)
     login_query = data.email.strip().lower()
     employee = await db.employees.find_one({
         "$or": [
             {"email": login_query},
             {"username": login_query}
-        ],
-        "status": "ACTIVE"  # Usar status, no isActive
+        ]
     })
     
-    # Si no找到 employee, buscar en tenants (backward compatibility con demos)
+    # Si no se encuentra employee, buscar en tenants (backward compatibility con demos)
     if not employee:
         tenant = await db.tenants.find_one({
             "$or": [
@@ -238,6 +237,13 @@ async def login_tenant(data: TenantLoginRequest):
                 detail="Credenciales incorrectas"
             )
     else:
+        # Verificar SI la cuenta está INACTIVA antes de verificar contraseña
+        if employee.get("status") == "INACTIVE":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tu cuenta está INACTIVA. Contacta al administrador."
+            )
+        
         # Verificar contraseña del employee
         if not verify_password(data.password, employee["password"]):
             raise HTTPException(

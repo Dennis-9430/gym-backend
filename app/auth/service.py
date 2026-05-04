@@ -120,4 +120,3 @@ async def initialize_default_users():
                 "role": data["role"],
                 "employeeId": data["employeeId"]
             })
-            print(f"Created default user: {username}")

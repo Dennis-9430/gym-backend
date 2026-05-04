@@ -57,7 +57,6 @@ async def lifespan(app: FastAPI):
         print("✅ Scheduler iniciado")
         
     except Exception as e:
-        print(f"❌ ERROR en startup: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
     

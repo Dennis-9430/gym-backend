@@ -19,7 +19,6 @@ async def connect_to_mongodb() -> None:
     
     # Verifica que la conexión funcione
     await _client.admin.command("ping")
-    print(f"Connected to MongoDB: {settings.MONGODB_DB_NAME}")
 
 
 async def close_mongodb_connection() -> None:
@@ -29,7 +28,6 @@ async def close_mongodb_connection() -> None:
     global _client
     if _client:
         _client.close()
-        print("MongoDB connection closed")
 
 
 def get_database() -> AsyncIOMotorDatabase:
@@ -97,6 +95,6 @@ async def create_indexes():
                     pass
                 await collection.create_index(keys, unique=False, background=True)
             else:
-                print(f"⚠️  {collection.name}: {str(e)[:30]}")
+                pass
     
-    print("✅ Índices configurados")
+   

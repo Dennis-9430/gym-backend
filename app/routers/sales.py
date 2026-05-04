@@ -307,7 +307,6 @@ async def send_invoice_email_async(db, invoice_doc: dict, email: str):
             {"$set": {"status": InvoiceStatus.SENT.value, "emailDelivery": {"sent": True, "sentAt": datetime.utcnow()}}}
         )
     except Exception as e:
-        print(f"Error enviando email: {e}")
         await db[Collections.INVOICES].update_one(
             {"invoiceNumber": invoice_doc.get("invoiceNumber"), "tenantId": invoice_doc.get("tenantId")},
             {"$set": {"status": InvoiceStatus.FAILED.value}}

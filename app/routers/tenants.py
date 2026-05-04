@@ -183,7 +183,6 @@ async def register_tenant(data: TenantCreate):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"ERROR en register: {type(e).__name__}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno: {str(e)}"
@@ -318,7 +317,6 @@ async def forgot_password(data: PasswordResetRequest, db: AsyncIOMotorDatabase =
     # Aquí enviarías el email con el token
     # Por ahora, devolvemos el token (en producción usar SMTP)
     # NOTA: En producción, enviar por email real
-    print(f"📧 Token de recuperación para {data.email}: {reset_token}")
     
     return {
         "message": "Si el correo existe, recibirás un enlace de recuperación",
@@ -674,7 +672,6 @@ async def initialize_tenant_demo():
             "updatedAt": datetime.utcnow(),
         }
         await db.tenants.insert_one(demo_basic)
-        print("✅ Demo BASIC created: demo-basic-001")
     
     # Demo PRO - buscar por tenantId
     existing_pro = await db.tenants.find_one({"tenantId": "demo-pro-001"})
@@ -700,4 +697,3 @@ async def initialize_tenant_demo():
             "updatedAt": datetime.utcnow(),
         }
         await db.tenants.insert_one(demo_pro)
-        print("✅ Demo PRO created: demo-pro-001")

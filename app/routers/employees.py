@@ -433,5 +433,3 @@ async def initialize_seed_employees():
             emp["createdAt"] = datetime.utcnow()
             emp["updatedAt"] = datetime.utcnow()
             await db[Collections.EMPLOYEES].insert_one(emp)
-    
-    print("✅ Employees seed completed")

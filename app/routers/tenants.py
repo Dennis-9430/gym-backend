@@ -88,7 +88,8 @@ def serialize_tenant(doc: dict) -> dict:
     # Convierte documento de MongoDB a respuesta
     """Serialize MongoDB document to response"""
     if doc:
-        doc["_id"] = str(doc["_id"])
+        doc["id"] = str(doc.get("_id", ""))
+        doc.pop("_id", None)
     return doc
 
 
@@ -97,73 +98,96 @@ async def register_tenant(data: TenantCreate):
     # Registro de nuevo tenant (gimnasio) con owner automático
     db = get_database()
     """Register a new gym tenant with owner"""
-    # Verificar si el email ya existe en tenants
-    existing = await db.tenants.find_one({"email": data.email})
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El correo electrónico ya está registrado"
+    try:
+        # Verificar si el email ya existe en tenants
+        existing = await db.tenants.find_one({"email": data.email})
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El correo electrónico ya está registrado"
+            )
+        
+        # Generar tenantId único
+        tenant_id = str(uuid4())
+        
+        # Datos del tenant
+        tenant_data = {
+            "tenantId": tenant_id,
+            "email": data.email,
+            "businessName": data.businessName,
+            "businessPhone": data.businessPhone,
+            "businessAddress": data.businessAddress or "",
+            "businessRuc": data.businessRuc or "",
+            "plan": data.plan,
+            "subscriptionStatus": SubscriptionStatus.ACTIVE,  # Temporal: activo inmediatamente
+            "subscriptionEndDate": None,
+            "taxRate": 12.0,
+            "currency": "USD",
+            "openingHour": "06:00",
+            "closingHour": "22:00",
+            "wsspReminderDays": 3,
+            "wsspEnabled": False,
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        }
+        
+        # Insertar tenant
+        tenant_result = await db.tenants.insert_one(tenant_data)
+        tenant_data["_id"] = tenant_result.inserted_id
+        
+        # Crear el OWNER automáticamente
+        owner_data = {
+            "tenantId": tenant_id,
+            "username": data.email,  # Username inicial = email
+            "documentType": "CEDULA",
+            "documentNumber": "",
+            "firstName": data.ownerFirstName,
+            "lastName": data.ownerLastName,
+            "email": data.email,  # Mismo email que tenant
+            "phone": data.businessPhone or "",
+            "role": "ADMIN",
+            "status": "ACTIVE",  # Usar status, no isActive
+            "isOwner": True,  # Flag de owner
+            "password": get_password_hash(data.password),  # Hashear contraseña
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        }
+        
+        # Insertar employee (owner)
+        owner_result = await db.employees.insert_one(owner_data)
+        owner_id = str(owner_result.inserted_id)
+        
+        # También crear el usuario en la colección users para login
+        await db.users.insert_one({
+            "username": data.email.lower(),  # Username = email
+            "password_hash": get_password_hash(data.password),  # Misma contraseña
+            "role": "ADMIN",
+            "employeeId": owner_id,
+            "tenantId": tenant_id,
+            "isOwner": True,
+            "createdAt": datetime.utcnow()
+        })
+        
+        # Actualizar tenant con ownerEmployeeId
+        await db.tenants.update_one(
+            {"_id": tenant_result.inserted_id},
+            {"$set": {"ownerEmployeeId": owner_id}}
         )
-    
-    # Generar tenantId único
-    tenant_id = str(uuid4())
-    
-    # Datos del tenant
-    tenant_data = {
-        "tenantId": tenant_id,
-        "email": data.email,
-        "businessName": data.businessName,
-        "businessPhone": data.businessPhone,
-        "businessAddress": data.businessAddress or "",
-        "businessRuc": data.businessRuc or "",
-        "plan": data.plan,
-        "subscriptionStatus": SubscriptionStatus.ACTIVE,  # Temporal: activo inmediatamente
-        "subscriptionEndDate": None,
-        "taxRate": 12.0,
-        "currency": "USD",
-        "openingHour": "06:00",
-        "closingHour": "22:00",
-        "wsspReminderDays": 3,
-        "wsspEnabled": False,
-        "createdAt": datetime.utcnow(),
-        "updatedAt": datetime.utcnow(),
-    }
-    
-    # Insertar tenant
-    tenant_result = await db.tenants.insert_one(tenant_data)
-    tenant_data["_id"] = tenant_result.inserted_id
-    
-    # Crear el OWNER automáticamente
-    owner_data = {
-        "tenantId": tenant_id,
-        "username": data.email,  # Username inicial = email
-        "documentType": "CEDULA",
-        "documentNumber": "",
-        "firstName": data.ownerFirstName,
-        "lastName": data.ownerLastName,
-        "email": data.email,  # Mismo email que tenant
-        "phone": data.businessPhone or "",
-        "role": "ADMIN",
-        "isActive": True,
-        "isOwner": True,  # Flag de owner
-        "password": get_password_hash(data.password),  # Hashear contraseña
-        "createdAt": datetime.utcnow(),
-        "updatedAt": datetime.utcnow(),
-    }
-    
-    # Insertar employee (owner)
-    owner_result = await db.employees.insert_one(owner_data)
-    owner_id = str(owner_result.inserted_id)
-    
-    # Actualizar tenant con ownerEmployeeId
-    await db.tenants.update_one(
-        {"_id": tenant_result.inserted_id},
-        {"$set": {"ownerEmployeeId": owner_id}}
-    )
-    tenant_data["ownerEmployeeId"] = owner_id
-    tenant_data["_id"] = str(tenant_data["_id"])
-    
-    return TenantResponse(**tenant_data)
+        tenant_data["ownerEmployeeId"] = owner_id
+        # Convertir _id a string para el modelo
+        tenant_data["id"] = str(tenant_result.inserted_id)
+        tenant_data["_id"] = str(tenant_data["_id"])
+        
+        return TenantResponse(**tenant_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR en register: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno: {str(e)}"
+        )
 
 
 @router.post("/login", response_model=TenantLoginResponse)
@@ -177,7 +201,7 @@ async def login_tenant(data: TenantLoginRequest):
             {"email": login_query},
             {"username": login_query}
         ],
-        "isActive": True
+        "status": "ACTIVE"  # Usar status, no isActive
     })
     
     # Si no找到 employee, buscar en tenants (backward compatibility con demos)
@@ -200,7 +224,8 @@ async def login_tenant(data: TenantLoginRequest):
                     "lastName": "",
                     "role": "ADMIN",
                     "isOwner": True,
-                    "isActive": True,
+                    "status": "ACTIVE",  # Usar status, no isActive
+                    "password": tenant.get("password"),  # Para verificar
                 }
             else:
                 raise HTTPException(
@@ -520,6 +545,19 @@ async def update_owner(
     
     if "password" in final_update:
         final_update["password"] = get_password_hash(final_update["password"])
+    
+    # También actualizar el usuario en la colección users
+    user_update = {}
+    if "username" in final_update:
+        user_update["username"] = final_update["username"].lower()
+    if "password" in final_update:
+        user_update["password_hash"] = final_update["password"]
+    
+    if user_update:
+        await db[Collections.USERS].update_one(
+            {"employeeId": owner_employee_id},
+            {"$set": user_update}
+        )
     
     final_update["updatedAt"] = datetime.utcnow()
     

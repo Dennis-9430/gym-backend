@@ -26,31 +26,40 @@ async def lifespan(app: FastAPI):
     # Inicializa MongoDB al iniciar la app
     # Relacionado con: database.py, auth/service.py
     """Application lifespan events"""
-    # Startup
-    await connect_to_mongodb()
-    
-    # Crear índices de base de datos
-    from app.database import create_indexes
-    await create_indexes()
-    
-    # Inicializar usuarios por defecto
-    from app.auth.service import initialize_default_users
-    await initialize_default_users()
-    
-    # Inicializar empleados seed si no existen
-    from app.routers.employees import initialize_seed_employees
-    await initialize_seed_employees()
-    
-    # Inicializar tenant demo si no existe
-    from app.routers.tenants import initialize_tenant_demo
-    await initialize_tenant_demo()
-    
-    # Iniciar scheduler de notificaciones
-    from app.scheduler.jobs import start_scheduler
     try:
+        # Startup
+        await connect_to_mongodb()
+        print("✅ MongoDB conectado")
+        
+        # Crear índices de base de datos
+        from app.database import create_indexes
+        await create_indexes()
+        print("✅ Índices creados")
+        
+        # Inicializar usuarios por defecto
+        from app.auth.service import initialize_default_users
+        await initialize_default_users()
+        print("✅ Usuarios default inicializados")
+        
+        # Inicializar empleados seed si no existen
+        from app.routers.employees import initialize_seed_employees
+        await initialize_seed_employees()
+        print("✅ Empleados seed inicializados")
+        
+        # Inicializar tenant demo si no existe
+        from app.routers.tenants import initialize_tenant_demo
+        await initialize_tenant_demo()
+        print("✅ Tenant demo inicializado")
+        
+        # Iniciar scheduler de notificaciones
+        from app.scheduler.jobs import start_scheduler
         start_scheduler()
+        print("✅ Scheduler iniciado")
+        
     except Exception as e:
-        print(f"Scheduler no iniciado: {e}")
+        print(f"❌ ERROR en startup: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
     
     yield
     # Shutdown

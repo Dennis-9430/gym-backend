@@ -105,7 +105,8 @@ class InvoiceCreate(InvoiceBase):
 
 
 class InvoiceResponse(InvoiceBase):
-    id: str = Field(..., alias="_id")
+    id: str
+    createdBy: str
     createdAt: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:

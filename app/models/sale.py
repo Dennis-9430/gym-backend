@@ -68,7 +68,7 @@ class SaleCreate(SaleBase):
 class SaleResponse(SaleBase):
     # Respuesta con todos los datos de la venta
     # Relacionado con: routers/sales.py (get_sale)
-    id: str = Field(..., alias="_id")
+    id: str
     createdBy: str
     createdAt: datetime = Field(default_factory=datetime.utcnow)
 

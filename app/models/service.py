@@ -38,7 +38,7 @@ class ServiceUpdate(BaseModel):
 class ServiceResponse(ServiceBase):
     # Respuesta con todos los datos del servicio
     # Relacionado con: routers/services.py (get_service)
-    id: str = Field(..., alias="_id")
+    id: str
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
 

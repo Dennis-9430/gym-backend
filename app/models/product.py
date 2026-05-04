@@ -39,7 +39,7 @@ class ProductUpdate(BaseModel):
 class ProductResponse(ProductBase):
     # Respuesta con todos los datos del producto
     # Relacionado con: routers/products.py (get_product)
-    id: str = Field(..., alias="_id")
+    id: str
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
 

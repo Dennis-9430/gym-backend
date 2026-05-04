@@ -38,7 +38,7 @@ class NotificationConfigUpdate(BaseModel):
 
 class NotificationConfigResponse(NotificationConfigBase):
     """Respuesta de configuración"""
-    id: str = Field(..., alias="_id")
+    id: str
     sentToday: bool = False
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
@@ -57,7 +57,7 @@ class NotificationLogBase(BaseModel):
 
 class NotificationLogResponse(NotificationLogBase):
     """Respuesta del log"""
-    id: str = Field(..., alias="_id")
+    id: str
     sentAt: datetime
 
     class Config:

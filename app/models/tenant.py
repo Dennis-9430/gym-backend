@@ -55,7 +55,7 @@ class TenantUpdate(BaseModel):
 
 class TenantResponse(TenantBase):
     # Respuesta con todos los datos del tenant
-    id: str = Field(..., alias="_id")
+    id: str
     tenantId: str
     plan: SubscriptionPlan = SubscriptionPlan.BASIC
     subscriptionStatus: SubscriptionStatus = SubscriptionStatus.PENDING
@@ -71,6 +71,7 @@ class TenantResponse(TenantBase):
     # Datos del owner para el frontend
     ownerFirstName: Optional[str] = None
     ownerLastName: Optional[str] = None
+    ownerUsername: Optional[str] = None
 
     class Config:
         populate_by_name = True

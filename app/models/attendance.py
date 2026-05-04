@@ -29,7 +29,7 @@ class AttendanceCheckOut(BaseModel):
 class AttendanceResponse(AttendanceBase):
     # Respuesta con todos los datos de asistencia
     # Relacionado con: routers/attendance.py (get_attendance)
-    id: str = Field(..., alias="_id")
+    id: str
     checkIn: datetime
     checkOut: Optional[datetime] = None
     date: str

@@ -75,7 +75,7 @@ class EmployeeResponse(EmployeeBase):
     # Respuesta con todos los datos del empleado
     # Relacionado con: routers/employees.py (get_employee)
     """Employee response schema"""
-    id: str = Field(..., alias="_id")
+    id: str
     permissions: List[Permission] = []
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None

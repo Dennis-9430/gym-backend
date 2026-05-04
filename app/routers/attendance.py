@@ -18,8 +18,9 @@ router = APIRouter(prefix="/api/attendance", tags=["Attendance"])
 
 
 def serialize_attendance(doc: dict) -> dict:
-    if doc and "_id" in doc:
-        doc["_id"] = str(doc["_id"])
+    if doc:
+        doc["id"] = str(doc.get("_id", ""))
+        doc.pop("_id", None)
     return doc
 
 

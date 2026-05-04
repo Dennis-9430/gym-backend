@@ -23,8 +23,9 @@ router = APIRouter(prefix="/api/sales", tags=["Sales"])
 
 
 def serialize_sale(doc: dict) -> dict:
-    if doc and "_id" in doc:
-        doc["_id"] = str(doc["_id"])
+    if doc:
+        doc["id"] = str(doc.get("_id", ""))
+        doc.pop("_id", None)
     return doc
 
 
@@ -271,6 +272,7 @@ async def generate_invoice_from_sale(db, sale_doc: dict, tenant_id: str, invoice
     # Crear documento de factura
     invoice_doc = {
         "tenantId": tenant_id,
+        "createdBy": sale_doc.get("createdBy", "Sistema"),
         "type": "PRODUCT",
         "invoiceNumber": invoice_number,
         "business": business_data,

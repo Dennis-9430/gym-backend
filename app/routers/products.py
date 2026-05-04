@@ -21,7 +21,8 @@ router = APIRouter(prefix="/api/products", tags=["Products"])
 
 def serialize_product(doc: dict) -> dict:
     if doc:
-        doc["_id"] = str(doc["_id"])
+        doc["id"] = str(doc.get("_id", ""))
+        doc.pop("_id", None)
     return doc
 
 

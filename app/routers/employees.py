@@ -63,7 +63,9 @@ async def get_tenant_from_header_employees(authorization: str = Header(None)) ->
 
 def serialize_employee(doc: dict) -> dict:
     if doc:
+        # Convertir _id a string y exponer como 'id' (eliminar _id)
         doc["id"] = str(doc.get("_id", ""))
+        doc.pop("_id", None)
         
         # Asegurar que isOwner exista en la respuesta
         if "isOwner" not in doc:
@@ -84,7 +86,8 @@ def serialize_employee(doc: dict) -> dict:
         if "updatedAt" not in doc or doc.get("updatedAt") is None:
             doc["updatedAt"] = datetime.utcnow()
         
-        doc.pop("_id", None)
+        # Remover password por seguridad
+        doc.pop("password", None)
     return doc
 
 
@@ -131,6 +134,14 @@ async def get_employee(
     tenant: TenantInfo = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
+    
+    # Validar formato de ObjectId
+    if not ObjectId.is_valid(employee_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ID de empleado inválido"
+        )
+    
     employee = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
     
     if not employee:
@@ -167,12 +178,38 @@ async def create_employee(
     
     employee_doc = employee_data.model_dump()
     employee_doc["tenantId"] = tenant.tenantId
-    employee_doc.pop("password", None)
     employee_doc["createdAt"] = datetime.utcnow()
     employee_doc["updatedAt"] = datetime.utcnow()
     
+    # Hashear la contraseña si se proporcionó
+    if employee_doc.get("password"):
+        employee_doc["password"] = get_password_hash(employee_doc["password"])
+    else:
+        employee_doc.pop("password", None)
+    
     result = await db[Collections.EMPLOYEES].insert_one(employee_doc)
     employee_doc["_id"] = result.inserted_id
+    
+    # CREAR USUARIO PARA LOGIN - Vincular employeeId al usuario
+    # El empleado necesita un registro en 'users' para poder hacer login
+    if employee_doc.get("password") is None and employee_data.password:
+        # Re-hashear para el usuario (el password ya fue hasheado arriba)
+        password_hash = get_password_hash(employee_data.password)
+    elif employee_doc.get("password"):
+        password_hash = employee_doc["password"]
+    else:
+        password_hash = None
+    
+    if password_hash:
+        employee_id_str = str(result.inserted_id)
+        await db[Collections.USERS].insert_one({
+            "username": employee_data.username.lower(),
+            "password_hash": password_hash,
+            "role": employee_data.role.value,
+            "employeeId": employee_id_str,
+            "tenantId": tenant.tenantId,
+            "createdAt": datetime.utcnow()
+        })
     
     return EmployeeResponse(**serialize_employee(employee_doc))
 
@@ -185,6 +222,13 @@ async def update_employee(
     tenant: TenantInfo = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
+    
+    # Validar formato de ObjectId
+    if not ObjectId.is_valid(employee_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ID de empleado inválido"
+        )
     
     existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
     if not existing:
@@ -232,6 +276,12 @@ async def update_employee(
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     update_dict["updatedAt"] = datetime.utcnow()
     
+    # Hashear contraseña si se proporciona
+    if "password" in update_dict and update_dict["password"]:
+        update_dict["password"] = get_password_hash(update_dict["password"])
+    else:
+        update_dict.pop("password", None)
+    
     # Validar username único si se está cambiando
     if "username" in update_dict and update_dict["username"]:
         existing_username = await db[Collections.EMPLOYEES].find_one({
@@ -249,6 +299,13 @@ async def update_employee(
         {"_id": ObjectId(employee_id)},
         {"$set": update_dict}
     )
+    
+    # Si se actualizó la contraseña, actualizar también el usuario
+    if "password" in update_dict and update_dict["password"]:
+        await db[Collections.USERS].update_one(
+            {"employeeId": employee_id},
+            {"$set": {"password_hash": update_dict["password"]}}
+        )
     
     updated = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
     return EmployeeResponse(**serialize_employee(updated))
@@ -282,6 +339,9 @@ async def delete_employee(
         )
     
     result = await db[Collections.EMPLOYEES].delete_one({"_id": ObjectId(employee_id)})
+    
+    # También eliminar el usuario asociado para que no pueda hacer login
+    await db[Collections.USERS].delete_one({"employeeId": employee_id})
     
     return None
 

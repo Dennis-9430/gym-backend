@@ -117,6 +117,7 @@ async def create_invoice(
     
     invoice_doc = {
         "tenantId": tenant.tenantId,
+        "createdBy": current_user.username,
         "type": invoice_data.type.value,
         "invoiceNumber": invoice_number,
         "business": invoice_data.business.model_dump() if invoice_data.business else {

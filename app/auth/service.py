@@ -3,6 +3,7 @@
 """Authentication service"""
 from datetime import timedelta
 from typing import Optional
+from bson import ObjectId
 from app.auth.schemas import UserResponse, LoginRequest, Token, UserRole
 from app.auth.utils import verify_password, create_access_token, create_initial_users
 from app.database import get_database, Collections
@@ -22,20 +23,58 @@ async def authenticate_user(username: str, password: str) -> Optional[UserRespon
     if not verify_password(password, user_doc["password_hash"]):
         return None
     
+    # Verificar status del empleado si tiene employeeId
+    if user_doc.get("employeeId"):
+        try:
+            employee = await db[Collections.EMPLOYEES].find_one(
+                {"_id": ObjectId(user_doc["employeeId"])}
+            )
+        except Exception:
+            employee = None
+        
+        if employee:
+            status = employee.get("status", "ACTIVE")
+            if status == "INACTIVE":
+                # Retornar el usuario pero marcado como inactivo
+                # El router verificará isInactive y throwará 403
+                return UserResponse(
+                    username=user_doc["username"],
+                    role=UserRole(user_doc["role"]),
+                    employeeId=user_doc.get("employeeId"),
+                    tenantId=user_doc.get("tenantId"),
+                    isOwner=user_doc.get("isOwner", False),
+                    plan=user_doc.get("plan", "BASIC"),
+                    isInactive=True  # Campo especial para indicar cuenta inactiva
+                )
+    
     return UserResponse(
         username=user_doc["username"],
         role=UserRole(user_doc["role"]),
-        employeeId=user_doc.get("employeeId")
+        employeeId=user_doc.get("employeeId"),
+        tenantId=user_doc.get("tenantId"),
+        isOwner=user_doc.get("isOwner", False),
+        plan=user_doc.get("plan", "BASIC")
     )
 
 
-async def create_token(username: str, role: UserRole) -> Token:
+async def create_token(username: str, role: UserRole, tenant_id: str = None, is_owner: bool = False, plan: str = "BASIC", employee_id: str = None) -> Token:
     # Genera token JWT para el usuario
     # Relacionado con: auth/router.py (login), config.py
     """Create JWT token for user"""
     access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    data = {"sub": username, "role": role.value}
+    
+    if tenant_id:
+        data["tenantId"] = tenant_id
+    if is_owner:
+        data["isOwner"] = True
+    if plan:
+        data["plan"] = plan
+    if employee_id:
+        data["employeeId"] = employee_id
+    
     access_token = create_access_token(
-        data={"sub": username, "role": role.value},
+        data=data,
         expires_delta=access_token_expires
     )
     return Token(access_token=access_token, token_type="bearer")

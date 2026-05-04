@@ -66,7 +66,23 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    token = await create_token(user.username, user.role)
+    # Verificar si la cuenta está inactiva
+    if getattr(user, 'isInactive', False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tu cuenta está INACTIVA. Contacta al administrador.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Incluir toda la información del usuario en el token
+    token = await create_token(
+        username=user.username,
+        role=user.role,
+        tenant_id=user.tenantId,
+        is_owner=user.isOwner,
+        plan=user.plan,
+        employee_id=user.employeeId
+    )
     return token
 
 

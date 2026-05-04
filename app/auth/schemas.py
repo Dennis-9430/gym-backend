@@ -45,6 +45,7 @@ class UserResponse(BaseModel):
     tenantId: Optional[str] = None
     isOwner: Optional[bool] = None
     plan: Optional[str] = None
+    isInactive: Optional[bool] = None  # Indica si la cuenta está inactiva
 
 
 class UserCreate(BaseModel):

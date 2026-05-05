@@ -72,22 +72,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware - permite orígenes específicos para desarrollo
-# En producción, configurar solo el dominio del frontend
-# Relacionado con: frontend (React - puerto 3000 o 5173)
-# Para desarrollo: permitir cualquier origen
-ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://localhost:8000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:8000",
-    "http://192.168.100.2:3000",
-    "http://192.168.100.2:5173",
-    "http://192.168.100.2:8000",
-]
-
+# CORS middleware - permite todos los orígenes para desarrollo
+# En producción, cambiar allow_origins a dominios específicos
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

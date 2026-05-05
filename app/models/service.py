@@ -4,6 +4,14 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
+from enum import Enum
+
+
+class ServiceType(str, Enum):
+    """Tipos de servicio"""
+    DAILY = "daily"          # Pago diario ($1-$5)
+    MEMBERSHIP = "membership"  # Membresía mensual/regular (>$5)
+    SPECIAL = "special"      # Membresía especial
 
 
 class ServiceBase(BaseModel):
@@ -15,6 +23,7 @@ class ServiceBase(BaseModel):
     price: float = 0.0
     duration: int = 30
     durationUnit: str = "days"
+    type: ServiceType = ServiceType.MEMBERSHIP
     isActive: bool = True
 
 
@@ -32,6 +41,7 @@ class ServiceUpdate(BaseModel):
     price: Optional[float] = None
     duration: Optional[int] = None
     durationUnit: Optional[str] = None
+    type: Optional[ServiceType] = None
     isActive: Optional[bool] = None
 
 

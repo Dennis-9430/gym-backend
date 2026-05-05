@@ -62,13 +62,13 @@ async def get_tenant_from_header(authorization: str = Header(None)) -> TenantRes
         
         # Retornar solo con los datos necesarios del tenant
         return TenantResponse(
-            _id=tenant_id,
+            id=tenant_id,
             tenantId=tenant_id,
-            email=payload.get("sub", ""),
-            businessName=payload.get("businessName", ""),
-            businessPhone=payload.get("businessPhone", ""),
-            businessAddress=payload.get("businessAddress", ""),
-            businessRuc=payload.get("businessRuc", ""),
+            email=payload.get("sub", "") or "tenant@example.com",
+            businessName=payload.get("businessName") or "Mi Gimnasio",
+            businessPhone=payload.get("businessPhone") or "",
+            businessAddress=payload.get("businessAddress") or "",
+            businessRuc=payload.get("businessRuc") or "",
             plan=SubscriptionPlan.BASIC,
             subscriptionStatus=SubscriptionStatus.ACTIVE
         )
@@ -88,12 +88,19 @@ async def list_clients(
     limit: int = Query(50, ge=1, le=100),
     status: Optional[MembershipStatus] = None,
     search: Optional[str] = None,
+    active_only: bool = Query(False),
     tenant: TenantResponse = Depends(get_tenant_from_header)
 ):
     db = get_database()
     
     # Usar tenantId del token de tenant
     query = {"tenantId": tenant.tenantId}
+    
+    # Si active_only es False, incluir todos los clientes
+    # Si es True, filtrar solo activos
+    if active_only:
+        query["membershipStatus"] = {"$ne": "EXPIRED"}
+    
     if status:
         query["membershipStatus"] = status.value
     
@@ -250,3 +257,77 @@ async def update_membership(
     
     updated = await db[Collections.CLIENTS].find_one({"id": client_id})
     return updated
+
+
+@router.post("/{client_id}/assign-membership", response_model=ClientResponse)
+async def assign_membership_with_service(
+    client_id: int,
+    serviceId: str,
+    startDate: Optional[str] = None,
+    tenant: TenantResponse = Depends(get_tenant_from_header)
+):
+    """
+    Asigna una membresía a un cliente calculando automáticamente la fecha fin
+    basándose en la duración del servicio.
+    """
+    db = get_database()
+    from datetime import datetime, timedelta
+    
+    # Buscar cliente
+    existing = await db[Collections.CLIENTS].find_one({"id": client_id, "tenantId": tenant.tenantId})
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Cliente no encontrado"
+        )
+    
+    # Buscar servicio
+    if not ObjectId.is_valid(serviceId):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ID de servicio inválido"
+        )
+    
+    service = await db[Collections.SERVICES].find_one({
+        "_id": ObjectId(serviceId),
+        "tenantId": tenant.tenantId
+    })
+    if not service:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Servicio no encontrado"
+        )
+    
+    # Calcular fechas
+    start = datetime.fromisoformat(startDate) if startDate else datetime.utcnow()
+    
+    # Calcular fecha fin según duración
+    duration = service.get("duration", 30)
+    duration_unit = service.get("durationUnit", "days")
+    
+    if duration_unit == "days":
+        end = start + timedelta(days=duration)
+    elif duration_unit == "weeks":
+        end = start + timedelta(weeks=duration)
+    elif duration_unit == "months":
+        # Agregar meses manualmente
+        end = start
+        end = end.replace(month=end.month + duration)
+    else:
+        end = start + timedelta(days=duration)
+    
+    # Actualizar cliente
+    update_data = {
+        "membership": service.get("name"),
+        "membershipStatus": MembershipStatus.ACTIVE.value,
+        "membershipStartDate": start,
+        "membershipEndDate": end
+    }
+    
+    await db[Collections.CLIENTS].update_one(
+        {"id": client_id},
+        {"$set": update_data}
+    )
+    
+    updated = await db[Collections.CLIENTS].find_one({"id": client_id})
+    return serialize_client(updated)

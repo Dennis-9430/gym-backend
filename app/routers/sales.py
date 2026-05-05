@@ -49,13 +49,13 @@ async def get_tenant_from_header_sales(authorization: str = Header(None)) -> Ten
             )
         
         return TenantResponse(
-            _id=tenant_id,
+            id=tenant_id,
             tenantId=tenant_id,
-            email=payload.get("sub", ""),
-            businessName=payload.get("businessName", ""),
-            businessPhone=payload.get("businessPhone", ""),
-            businessAddress=payload.get("businessAddress", ""),
-            businessRuc=payload.get("businessRuc", ""),
+            email=payload.get("sub", "") or "tenant@example.com",
+            businessName=payload.get("businessName") or "Mi Gimnasio",
+            businessPhone=payload.get("businessPhone") or "",
+            businessAddress=payload.get("businessAddress") or "",
+            businessRuc=payload.get("businessRuc") or "",
             plan=SubscriptionPlan.BASIC,
             subscriptionStatus=SubscriptionStatus.ACTIVE
         )

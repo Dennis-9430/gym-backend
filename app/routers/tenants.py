@@ -178,6 +178,40 @@ async def register_tenant(data: TenantCreate):
         tenant_data["id"] = str(tenant_result.inserted_id)
         tenant_data["_id"] = str(tenant_data["_id"])
         
+        # CREAR SERVICIOS DEFAULT PARA EL TENANT
+        from app.models.service import ServiceType
+        from datetime import timedelta
+        
+        default_services = [
+            {
+                "tenantId": tenant_id,
+                "name": "Pago Diario",
+                "description": "Acceso al gimnasio por un día",
+                "price": 2.50,
+                "duration": 1,
+                "durationUnit": "days",
+                "type": ServiceType.DAILY.value,
+                "isActive": True,
+                "createdAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow(),
+            },
+            {
+                "tenantId": tenant_id,
+                "name": "Mensual",
+                "description": "Membresía mensual completa",
+                "price": 30.00,
+                "duration": 30,
+                "durationUnit": "days",
+                "type": ServiceType.MEMBERSHIP.value,
+                "isActive": True,
+                "createdAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow(),
+            }
+        ]
+        
+        for service_data in default_services:
+            await db.services.insert_one(service_data)
+        
         return TenantResponse(**tenant_data)
         
     except HTTPException:
@@ -647,6 +681,7 @@ async def initialize_tenant_demo():
     db = get_database()
     """Create demo tenant if not exists"""
     from app.models.tenant import SubscriptionPlan, SubscriptionStatus
+    from app.models.service import ServiceType
     
     # Demo BASIC - buscar por tenantId, no por email
     existing_basic = await db.tenants.find_one({"tenantId": "demo-basic-001"})
@@ -672,6 +707,9 @@ async def initialize_tenant_demo():
             "updatedAt": datetime.utcnow(),
         }
         await db.tenants.insert_one(demo_basic)
+        
+        # Crear servicios default para demo-basic
+        await create_default_services("demo-basic-001")
     
     # Demo PRO - buscar por tenantId
     existing_pro = await db.tenants.find_one({"tenantId": "demo-pro-001"})
@@ -697,3 +735,42 @@ async def initialize_tenant_demo():
             "updatedAt": datetime.utcnow(),
         }
         await db.tenants.insert_one(demo_pro)
+        
+        # Crear servicios default para demo-pro
+        await create_default_services("demo-pro-001")
+
+
+async def create_default_services(tenant_id: str):
+    """Crea los servicios default para un tenant"""
+    from app.models.service import ServiceType
+    db = get_database()
+    
+    default_services = [
+        {
+            "tenantId": tenant_id,
+            "name": "Pago Diario",
+            "description": "Acceso al gimnasio por un día",
+            "price": 2.50,
+            "duration": 1,
+            "durationUnit": "days",
+            "type": ServiceType.DAILY.value,
+            "isActive": True,
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        },
+        {
+            "tenantId": tenant_id,
+            "name": "Mensual",
+            "description": "Membresía mensual completa",
+            "price": 30.00,
+            "duration": 30,
+            "durationUnit": "days",
+            "type": ServiceType.MEMBERSHIP.value,
+            "isActive": True,
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        }
+    ]
+    
+    for service_data in default_services:
+        await db.services.insert_one(service_data)

@@ -60,15 +60,25 @@ async def get_tenant_from_header_sales(authorization: str = Header(None)) -> Ten
                 detail="Token inválido"
             )
         
+        # Obtener datos reales del tenant desde la base de datos
+        db = get_database()
+        tenant_doc = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+        
+        plan_from_db = SubscriptionPlan.BASIC
+        if tenant_doc and tenant_doc.get("plan"):
+            plan_str = tenant_doc.get("plan")
+            if plan_str in ["BASIC", "PREMIUM"]:
+                plan_from_db = SubscriptionPlan(plan_str)
+        
         return TenantResponse(
             id=tenant_id,
             tenantId=tenant_id,
             email=payload.get("sub", "") or "tenant@example.com",
-            businessName=payload.get("businessName") or "Mi Gimnasio",
-            businessPhone=payload.get("businessPhone") or "",
-            businessAddress=payload.get("businessAddress") or "",
-            businessRuc=payload.get("businessRuc") or "",
-            plan=SubscriptionPlan.BASIC,
+            businessName=tenant_doc.get("businessName", "Mi Gimnasio") if tenant_doc else "Mi Gimnasio",
+            businessPhone=tenant_doc.get("businessPhone", "") if tenant_doc else "",
+            businessAddress=tenant_doc.get("businessAddress", "") if tenant_doc else "",
+            businessRuc=tenant_doc.get("businessRuc", "") if tenant_doc else "",
+            plan=plan_from_db if plan_from_db in ["BASIC", "PREMIUM"] else SubscriptionPlan.BASIC,
             subscriptionStatus=SubscriptionStatus.ACTIVE
         )
     
@@ -190,8 +200,8 @@ async def create_sale(
     
     result = await db[Collections.SALES].insert_one(sale_doc)
     
-    # Generar factura solo si checkbox marcado
-    if sale_data.generateInvoice:
+    # Generar factura solo si checkbox marcado Y el tenant tiene plan PREMIUM
+    if sale_data.generateInvoice and tenant.plan.value == "PREMIUM":
         await generate_invoice_from_sale(db, sale_doc, tenant.tenantId, sale_data.invoiceEmail)
     
     return serialize_sale(sale_doc)

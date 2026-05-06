@@ -12,6 +12,7 @@ class PaymentMethod(str, Enum):
     CASH = "CASH"
     TRANSFER = "TRANSFER"
     DEPOSIT = "DEPOSIT"
+    MIXED = "MIXED"
 
 
 class PaymentStatus(str, Enum):
@@ -56,6 +57,8 @@ class SaleCreate(SaleBase):
     # Datos para crear venta
     # Relacionado con: routers/sales.py (create_sale)
     generateInvoice: bool = False
+    cashAmount: float = 0.0
+    transferAmount: float = 0.0
     clientDocument: Optional[str] = None
     clientFirstName: Optional[str] = None
     clientLastName: Optional[str] = None
@@ -71,9 +74,18 @@ class SaleResponse(SaleBase):
     id: str
     createdBy: str
     createdAt: datetime = Field(default_factory=datetime.utcnow)
+    clientFirstName: Optional[str] = None
+    clientLastName: Optional[str] = None
+    clientDocument: Optional[str] = None
+    clientEmail: Optional[str] = None
+    clientPhone: Optional[str] = None
+    clientAddress: Optional[str] = None
+    generateInvoice: bool = False
+    invoiceEmail: Optional[str] = None
 
     class Config:
         populate_by_name = True
+        from_attributes = True
 
 
 class SaleListResponse(BaseModel):

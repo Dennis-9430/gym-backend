@@ -26,6 +26,18 @@ def serialize_sale(doc: dict) -> dict:
     if doc:
         doc["id"] = str(doc.get("_id", ""))
         doc.pop("_id", None)
+        if "createdBy" not in doc:
+            doc["createdBy"] = "Sistema"
+        if "cashAmount" not in doc:
+            doc["cashAmount"] = 0.0
+        if "transferAmount" not in doc:
+            doc["transferAmount"] = 0.0
+        client_fields = ["clientFirstName", "clientLastName", "clientDocument", 
+                         "clientEmail", "clientPhone", "clientAddress",
+                         "generateInvoice", "invoiceEmail"]
+        for field in client_fields:
+            if field not in doc:
+                doc[field] = None
     return doc
 
 
@@ -144,7 +156,7 @@ async def create_sale(
     voucher = sale_doc.get("voucherCode")
     
     # Efectivo = verificado, Transferencia/Depósito sin voucher = pendiente
-    if payment_method == "CASH":
+    if payment_method == "CASH" or payment_method == "MIXED":
         sale_doc["paymentStatus"] = "verified"
     elif voucher and voucher.strip():
         sale_doc["paymentStatus"] = "verified"
@@ -177,13 +189,12 @@ async def create_sale(
             )
     
     result = await db[Collections.SALES].insert_one(sale_doc)
-    sale_doc["_id"] = str(result.inserted_id)
     
     # Generar factura solo si checkbox marcado
     if sale_data.generateInvoice:
         await generate_invoice_from_sale(db, sale_doc, tenant.tenantId, sale_data.invoiceEmail)
     
-    return sale_doc
+    return serialize_sale(sale_doc)
 
 
 async def generate_invoice_from_sale(db, sale_doc: dict, tenant_id: str, invoice_email: Optional[str] = None):

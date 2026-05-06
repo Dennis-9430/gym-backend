@@ -9,7 +9,7 @@ from starlette.responses import Response
 
 # Configuración de límites
 # Relacionado con: main.py
-DEFAULT_RATE_LIMIT = 100  # Requests por minute
+DEFAULT_RATE_LIMIT = 2000  # Requests por minute
 LOGIN_RATE_LIMIT = 10     # Intentos de login por minute
 
 # Almacenamiento simple en memoria (en producción usar Redis)

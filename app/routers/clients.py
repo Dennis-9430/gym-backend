@@ -1,7 +1,7 @@
 # Endpoints para gestión de clientes
 # Relacionado con: models/client.py, auth/router.py, database.py
 """Clients router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Header, Body
 from typing import Optional
 from bson import ObjectId
 from jose import JWTError, jwt
@@ -171,8 +171,9 @@ async def create_client(
     client_doc["membershipEndDate"] = None
     
     result = await db[Collections.CLIENTS].insert_one(client_doc)
+    client_doc["_id"] = str(result.inserted_id)
     
-    return {**client_doc, "_id": str(result.inserted_id)}
+    return serialize_client(client_doc)
 
 
 @router.put("/{client_id}", response_model=ClientResponse)
@@ -261,9 +262,9 @@ async def update_membership(
 
 @router.post("/{client_id}/assign-membership", response_model=ClientResponse)
 async def assign_membership_with_service(
-    client_id: int,
-    serviceId: str,
-    startDate: Optional[str] = None,
+    client_id: str,
+    serviceId: str = Body(...),
+    startDate: Optional[str] = Body(None),
     tenant: TenantResponse = Depends(get_tenant_from_header)
 ):
     """
@@ -273,8 +274,8 @@ async def assign_membership_with_service(
     db = get_database()
     from datetime import datetime, timedelta
     
-    # Buscar cliente
-    existing = await db[Collections.CLIENTS].find_one({"id": client_id, "tenantId": tenant.tenantId})
+    # Buscar cliente por _id de MongoDB
+    existing = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -310,9 +311,19 @@ async def assign_membership_with_service(
     elif duration_unit == "weeks":
         end = start + timedelta(weeks=duration)
     elif duration_unit == "months":
-        # Agregar meses manualmente
-        end = start
-        end = end.replace(month=end.month + duration)
+        # Agregar meses correctamente manejando fin de mes
+        year = start.year
+        month = start.month + duration
+        day = start.day
+        while month > 12:
+            year += 1
+            month -= 12
+        # Ajustar día si el mes no tiene suficientes días
+        import calendar
+        max_day = calendar.monthrange(year, month)[1]
+        if day > max_day:
+            day = max_day
+        end = start.replace(year=year, month=month, day=day)
     else:
         end = start + timedelta(days=duration)
     
@@ -325,9 +336,9 @@ async def assign_membership_with_service(
     }
     
     await db[Collections.CLIENTS].update_one(
-        {"id": client_id},
+        {"_id": ObjectId(client_id)},
         {"$set": update_data}
     )
     
-    updated = await db[Collections.CLIENTS].find_one({"id": client_id})
+    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id)})
     return serialize_client(updated)

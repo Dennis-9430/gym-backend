@@ -156,8 +156,8 @@ async def delete_invoice(
 ):
     db = get_database()
     
-    if current_user.role.value != "ADMIN":
-        raise HTTPException(status_code=403, detail="Solo administradores pueden eliminar facturas")
+    if current_user.role.value not in ["ADMIN", "GERENTE"]:
+        raise HTTPException(status_code=403, detail="Solo administradores o gerentes pueden eliminar facturas")
     
     if not ObjectId.is_valid(invoice_id):
         raise HTTPException(status_code=400, detail="ID de factura inválido")

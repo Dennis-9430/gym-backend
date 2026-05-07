@@ -340,10 +340,10 @@ async def delete_sale(
     current_user: UserResponse = Depends(get_current_user),
     tenant: TenantResponse = Depends(get_tenant_from_header_sales)
 ):
-    if current_user.role.value != "ADMIN":
+    if current_user.role.value not in ["ADMIN", "GERENTE"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can delete sales"
+            detail="Solo administradores o gerentes pueden eliminar ventas"
         )
     
     db = get_database()
@@ -404,10 +404,10 @@ async def verify_payment(
     tenant: TenantResponse = Depends(get_tenant_from_header_sales)
 ):
     """Marca pago como verificado - Solo ADMIN"""
-    if current_user.role.value != "ADMIN":
+    if current_user.role.value not in ["ADMIN", "GERENTE"]:
         raise HTTPException(
             status_code=403,
-            detail="Solo administradores pueden verificar pagos"
+            detail="Solo administradores o gerentes pueden verificar pagos"
         )
     
     db = get_database()

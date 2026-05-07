@@ -94,10 +94,10 @@ async def create_service(
     service_data: ServiceCreate,
     current_user: UserResponse = Depends(get_current_user)
 ):
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role not in [UserRole.ADMIN, UserRole.GERENTE]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can create services"
+            detail="Solo administradores o gerentes pueden crear servicios"
         )
     
     db = get_database()
@@ -130,10 +130,10 @@ async def update_service(
     service_data: ServiceUpdate,
     current_user: UserResponse = Depends(get_current_user)
 ):
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role not in [UserRole.ADMIN, UserRole.GERENTE]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can update services"
+            detail="Solo administradores o gerentes pueden actualizar servicios"
         )
     
     db = get_database()
@@ -172,10 +172,10 @@ async def delete_service(
     service_id: str,
     current_user: UserResponse = Depends(get_current_user)
 ):
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role not in [UserRole.ADMIN, UserRole.GERENTE]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can delete services"
+            detail="Solo administradores o gerentes pueden eliminar servicios"
         )
     
     db = get_database()

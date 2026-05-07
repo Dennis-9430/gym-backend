@@ -21,6 +21,7 @@ class ServiceBase(BaseModel):
     name: str
     description: str = ""
     price: float = 0.0
+    taxRate: float = 0.0
     duration: int = 30
     durationUnit: str = "days"
     type: ServiceType = ServiceType.MEMBERSHIP

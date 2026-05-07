@@ -9,6 +9,7 @@ from enum import Enum
 class UserRole(str, Enum):
     ADMIN = "ADMIN"
     RECEPCIONISTA = "RECEPCIONISTA"
+    GERENTE = "GERENTE"
 
 
 class TokenData(BaseModel):

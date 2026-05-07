@@ -10,6 +10,7 @@ from enum import Enum
 class EmployeeRole(str, Enum):
     ADMIN = "ADMIN"
     RECEPCIONISTA = "RECEPCIONISTA"
+    GERENTE = "GERENTE"
 
 
 class EmployeeStatus(str, Enum):

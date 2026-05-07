@@ -145,7 +145,7 @@ async def register_tenant(data: TenantCreate):
             "lastName": data.ownerLastName,
             "email": data.email,  # Mismo email que tenant
             "phone": data.businessPhone or "",
-            "role": "ADMIN",
+            "role": "GERENTE",  # El owner siempre es GERENTE
             "status": "ACTIVE",  # Usar status, no isActive
             "isOwner": True,  # Flag de owner
             "password": get_password_hash(data.password),  # Hashear contraseña
@@ -161,7 +161,7 @@ async def register_tenant(data: TenantCreate):
         await db.users.insert_one({
             "username": data.email.lower(),  # Username = email
             "password_hash": get_password_hash(data.password),  # Misma contraseña
-            "role": "ADMIN",
+            "role": "GERENTE",
             "employeeId": owner_id,
             "tenantId": tenant_id,
             "isOwner": True,
@@ -278,7 +278,15 @@ async def login_tenant(data: TenantLoginRequest):
             )
         
         # Verificar contraseña del employee
-        if not verify_password(data.password, employee["password"]):
+        # Buscar password en ambos campos (password o password_hash)
+        stored_password = employee.get("password") or employee.get("password_hash")
+        if not stored_password:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error interno: Employee sin contraseña"
+            )
+        
+        if not verify_password(data.password, stored_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Credenciales incorrectas"

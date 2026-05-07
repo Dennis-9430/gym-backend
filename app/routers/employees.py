@@ -160,10 +160,20 @@ async def create_employee(
     tenant: TenantInfo = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
-    if current_user.role.value not in ["ADMIN"]:
+    user_role = current_user.role.value
+    
+    # OWNER (GERENTE) y ADMIN pueden crear empleados
+    if user_role not in ["ADMIN", "GERENTE"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo administradores pueden crear empleados"
+            detail="Solo administradores o gerentes pueden crear empleados"
+        )
+    
+    # PROTECCIÓN: ADMIN no puede crear otro ADMIN (pero sí recepcionistas)
+    if user_role == "ADMIN" and employee_data.role.value == "ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Un administrador no puede crear otro administrador"
         )
     
     existing = await db[Collections.EMPLOYEES].find_one({
@@ -222,6 +232,7 @@ async def update_employee(
     tenant: TenantInfo = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
+    user_role = current_user.role.value
     
     # Validar formato de ObjectId
     if not ObjectId.is_valid(employee_id):
@@ -237,8 +248,8 @@ async def update_employee(
             detail="Empleado no encontrado"
         )
     
-    # PROTECCIÓN: Solo ADMIN puede editar, RECEPCIONISTA no puede editar empleados
-    if current_user.role.value == "RECEPCIONISTA":
+    # PROTECCIÓN: RECEPCIONISTA no puede editar empleados
+    if user_role == "RECEPCIONISTA":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Los recepcionistas no pueden editar empleados"
@@ -272,6 +283,16 @@ async def update_employee(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=f"No puedes modificar el campo {field} del owner"
                 )
+    
+    # PROTECCIÓN: ADMIN no puede cambiar role o status de otro ADMIN
+    target_role = existing.get("role", "")
+    if user_role == "ADMIN" and target_role == "ADMIN":
+        update_dict_protected = update_data.model_dump(exclude_unset=True)
+        if "role" in update_dict_protected or "status" in update_dict_protected:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Un administrador no puede cambiar el rol o estado de otro administrador"
+            )
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     update_dict["updatedAt"] = datetime.utcnow()
@@ -318,10 +339,13 @@ async def delete_employee(
     tenant: TenantInfo = Depends(get_tenant_from_header_employees)
 ):
     db = get_database()
-    if current_user.role.value != "ADMIN":
+    user_role = current_user.role.value
+    
+    # OWNER (GERENTE) y ADMIN pueden eliminar empleados
+    if user_role not in ["ADMIN", "GERENTE"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo administradores pueden eliminar empleados"
+            detail="Solo administradores o gerentes pueden eliminar empleados"
         )
     
     existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
@@ -331,11 +355,19 @@ async def delete_employee(
             detail="Empleado no encontrado"
         )
     
-    # PROTECCIÓN: El OWNER no puede eliminarse
+    # PROTECCIÓN: El OWNER no puede eliminarse a sí mismo
     if existing.get("isOwner", False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No puedes eliminar al owner principal"
+        )
+    
+    # PROTECCIÓN: ADMIN no puede eliminar a otro ADMIN (pero sí a recepcionistas)
+    target_role = existing.get("role", "")
+    if user_role == "ADMIN" and target_role == "ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Un administrador no puede eliminar a otro administrador"
         )
     
     result = await db[Collections.EMPLOYEES].delete_one({"_id": ObjectId(employee_id)})
@@ -367,7 +399,7 @@ async def initialize_seed_employees():
             "lastName": "Basic",
             "email": "demo-basic@gmail.com",
             "phone": "099123456",
-            "role": "ADMIN",
+            "role": "GERENTE",  # El owner siempre es GERENTE
             "status": "ACTIVE",
             "isOwner": True,  # Owner del demo basic
             "password": "demoBasic123",  # Contraseña hasheada se genera después
@@ -413,7 +445,7 @@ async def initialize_seed_employees():
             "lastName": "Pro",
             "email": "demo-pro@gmail.com",
             "phone": "099123456",
-            "role": "ADMIN",
+            "role": "GERENTE",  # El owner siempre es GERENTE
             "status": "ACTIVE",
             "isOwner": True,  # Owner del demo pro
             "password": "demoPro123",

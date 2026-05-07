@@ -40,6 +40,7 @@ class ServiceUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     price: Optional[float] = None
+    taxRate: Optional[float] = None
     duration: Optional[int] = None
     durationUnit: Optional[str] = None
     type: Optional[ServiceType] = None

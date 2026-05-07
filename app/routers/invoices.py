@@ -14,7 +14,7 @@ from app.models.invoice import (
     InvoiceEmailResponse,
     InvoiceStatus,
 )
-from app.models.tenant import TenantResponse, SubscriptionPlan
+from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
@@ -40,17 +40,27 @@ async def get_tenant_from_header(authorization: str = Header(None)) -> TenantRes
         db = get_database()
         tenant_doc = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
         
-        plan = "BASIC"
-        if tenant_doc and tenant_doc.get("plan"):
-            plan_str = tenant_doc.get("plan")
-            if plan_str in ["BASIC", "PREMIUM"]:
-                plan = plan_str
+        if not tenant_doc:
+            raise HTTPException(status_code=401, detail="Tenant no encontrado")
+        
+        plan = SubscriptionPlan.BASIC
+        plan_str = tenant_doc.get("plan", "BASIC")
+        if plan_str in ["BASIC", "PREMIUM"]:
+            plan = SubscriptionPlan(plan_str)
         
         return TenantResponse(
+            id=tenant_doc.get("tenantId", tenant_id),
             tenantId=tenant_id,
-            name=tenant_doc.get("businessName", "") if tenant_doc else "",
+            email=tenant_doc.get("email", ""),
+            businessName=tenant_doc.get("businessName", ""),
+            businessPhone=tenant_doc.get("businessPhone", ""),
+            businessAddress=tenant_doc.get("businessAddress", ""),
+            businessRuc=tenant_doc.get("businessRuc", ""),
             plan=plan,
-            status="ACTIVE"
+            subscriptionStatus=tenant_doc.get("subscriptionStatus", SubscriptionStatus.ACTIVE),
+            subscriptionEndDate=tenant_doc.get("subscriptionEndDate"),
+            taxRate=tenant_doc.get("taxRate", 12.0),
+            currency=tenant_doc.get("currency", "USD"),
         )
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido")

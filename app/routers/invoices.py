@@ -14,7 +14,7 @@ from app.models.invoice import (
     InvoiceEmailResponse,
     InvoiceStatus,
 )
-from app.models.tenant import TenantResponse
+from app.models.tenant import TenantResponse, SubscriptionPlan
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
@@ -37,10 +37,19 @@ async def get_tenant_from_header(authorization: str = Header(None)) -> TenantRes
         if not tenant_id:
             raise HTTPException(status_code=401, detail="Token inválido")
         
+        db = get_database()
+        tenant_doc = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+        
+        plan = "BASIC"
+        if tenant_doc and tenant_doc.get("plan"):
+            plan_str = tenant_doc.get("plan")
+            if plan_str in ["BASIC", "PREMIUM"]:
+                plan = plan_str
+        
         return TenantResponse(
             tenantId=tenant_id,
-            name="",
-            plan="FREE",
+            name=tenant_doc.get("businessName", "") if tenant_doc else "",
+            plan=plan,
             status="ACTIVE"
         )
     except JWTError:

@@ -200,8 +200,8 @@ async def create_sale(
     
     result = await db[Collections.SALES].insert_one(sale_doc)
     
-    # Generar factura solo si checkbox marcado Y el tenant tiene plan PREMIUM
-    if sale_data.generateInvoice and tenant.plan.value == "PREMIUM":
+    # Generar factura si el checkbox está marcado
+    if sale_data.generateInvoice:
         await generate_invoice_from_sale(db, sale_doc, tenant.tenantId, sale_data.invoiceEmail)
     
     return serialize_sale(sale_doc)

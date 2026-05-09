@@ -37,7 +37,7 @@ class InvoiceClient(BaseModel):
     documentNumber: str
     firstName: str
     lastName: str
-    email: str
+    email: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
 

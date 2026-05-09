@@ -55,6 +55,7 @@ class ClientCreate(ClientBase):
 class ClientUpdate(BaseModel):
     # Datos para actualizar cliente
     # Relacionado con: routers/clients.py (update_client)
+    client_id: str = ""
     documentType: Optional[DocumentType] = None
     documentNumber: Optional[str] = None
     firstName: Optional[str] = None

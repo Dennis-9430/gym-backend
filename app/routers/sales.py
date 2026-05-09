@@ -8,7 +8,7 @@ from bson import ObjectId
 from jose import JWTError, jwt
 import asyncio
 from app.models.sale import (
-    SaleCreate, SaleResponse, SaleListResponse, SaleItem, PaymentMethod
+    SaleCreate, SaleUpdate, SaleResponse, SaleListResponse, SaleItem, PaymentMethod
 )
 from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.models.invoice import InvoiceStatus, PaymentMethodType
@@ -144,6 +144,47 @@ async def get_sale(
     return serialize_sale(sale)
 
 
+@router.put("/{sale_id}", response_model=SaleResponse)
+async def update_sale(
+    sale_id: str,
+    sale_data: SaleUpdate,
+    current_user: UserResponse = Depends(get_current_user),
+    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
+):
+    """Actualiza el método de pago de una venta"""
+    db = get_database()
+    
+    if not ObjectId.is_valid(sale_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid sale ID"
+        )
+    
+    update_fields = sale_data.model_dump()
+    
+    # Si el método es CASH, ajustar montos
+    if sale_data.paymentMethod == PaymentMethod.CASH:
+        update_fields["cashAmount"] = update_fields.get("cashAmount", 0)
+        update_fields["transferAmount"] = 0
+    elif sale_data.paymentMethod == PaymentMethod.TRANSFER:
+        update_fields["cashAmount"] = 0
+        update_fields["transferAmount"] = update_fields.get("transferAmount", 0)
+    
+    result = await db[Collections.SALES].find_one_and_update(
+        {"_id": ObjectId(sale_id), "tenantId": tenant.tenantId},
+        {"$set": update_fields},
+        return_document=True
+    )
+    
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sale not found"
+        )
+    
+    return serialize_sale(result)
+
+
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 
@@ -235,24 +276,53 @@ async def generate_invoice_from_sale(db, sale_doc: dict, tenant_id: str, invoice
         "email": client_email,
     }
     
-    # Preparar items de la factura
+    # Preparar items de la factura y determinar taxRate desde el servicio
     invoice_items = []
+    effective_tax_rate = 0
     for item in sale_doc.get("items", []):
+        item_tax_rate = 0
+        service_id = item.get("serviceId")
+        if service_id:
+            service = await db[Collections.SERVICES].find_one({"_id": ObjectId(service_id)})
+            if service:
+                item_tax_rate = service.get("taxRate", 0)
+        else:
+            product_id = item.get("productId")
+            if product_id:
+                product = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id)})
+                if product:
+                    item_tax_rate = product.get("taxRate", 0)
+        
         invoice_items.append({
             "name": item.get("productName", "Producto"),
             "quantity": item.get("quantity", 1),
             "unitPrice": item.get("unitPrice", 0),
             "unitDiscount": item.get("unitDiscount", 0),
             "subtotal": item.get("subtotal", 0),
+            "serviceId": service_id,
+            "taxRate": item_tax_rate,
         })
+        if item_tax_rate > effective_tax_rate:
+            effective_tax_rate = item_tax_rate
     
-    # Calcular totales
-    subtotal = sum(item.get("subtotal", 0) for item in invoice_items)
-    discount_amount = subtotal * sale_doc.get("discount", 0) / 100 if sale_doc.get("discount") else 0
-    taxable_subtotal = subtotal - discount_amount
-    tax_rate = tenant.get("taxRate", 12) if tenant else 12
-    tax_amount = taxable_subtotal * tax_rate / 100
-    total = taxable_subtotal + tax_amount
+    # Si ningún item tiene taxRate, usar el del tenant como fallback
+    if effective_tax_rate <= 0:
+        effective_tax_rate = tenant.get("taxRate", 0) if tenant else 0
+    
+    # Calcular totales con IVA incluido (SRI Ecuador)
+    # El subtotal de la venta ES el PVP (total que paga el cliente)
+    total_items = sum(item.get("subtotal", 0) for item in invoice_items)
+    discount_amount = total_items * sale_doc.get("discount", 0) / 100 if sale_doc.get("discount") else 0
+    pvp = total_items - discount_amount
+    
+    if effective_tax_rate > 0:
+        subtotal = round(pvp / (1 + effective_tax_rate / 100), 2)
+        tax_amount = round(pvp - subtotal, 2)
+        total = pvp
+    else:
+        subtotal = pvp
+        tax_amount = 0
+        total = pvp
     
     # Datos del negocio
     business_data = {
@@ -263,31 +333,37 @@ async def generate_invoice_from_sale(db, sale_doc: dict, tenant_id: str, invoice
         "email": tenant.get("email", "") if tenant else "",
     }
     
-    # Método de pago
+    # Método de pago — usar montos reales del sale_doc
+    cash_amount = sale_doc.get("cashAmount", 0) or 0
+    transfer_amount = sale_doc.get("transferAmount", 0) or 0
+    paid = round(cash_amount + transfer_amount, 2)
+    # Cambio: lo que sobra del efectivo después de cubrir el total menos la transferencia
+    change = round(max(0, cash_amount - max(0, total - transfer_amount)), 2)
+    
     payment_method = sale_doc.get("paymentMethod", "CASH")
     if payment_method == "CASH":
         payment_data = {
             "method": PaymentMethodType.CASH,
-            "cashAmount": total,
+            "cashAmount": cash_amount,
             "transferAmount": 0,
-            "paid": total,
-            "change": 0,
+            "paid": paid,
+            "change": change,
         }
     elif payment_method == "TRANSFER":
         payment_data = {
             "method": PaymentMethodType.TRANSFER,
             "cashAmount": 0,
-            "transferAmount": total,
-            "paid": total,
+            "transferAmount": transfer_amount,
+            "paid": paid,
             "change": 0,
         }
     else:
         payment_data = {
             "method": PaymentMethodType.MIXED,
-            "cashAmount": sale_doc.get("cashAmount", 0),
-            "transferAmount": sale_doc.get("transferAmount", 0),
-            "paid": total,
-            "change": 0,
+            "cashAmount": cash_amount,
+            "transferAmount": transfer_amount,
+            "paid": paid,
+            "change": change,
         }
     
     # Crear documento de factura
@@ -340,10 +416,10 @@ async def delete_sale(
     current_user: UserResponse = Depends(get_current_user),
     tenant: TenantResponse = Depends(get_tenant_from_header_sales)
 ):
-    if current_user.role.value not in ["ADMIN", "GERENTE"]:
+    if current_user.role.value not in ["GERENTE"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo administradores o gerentes pueden eliminar ventas"
+            detail="Solo el gerente puede eliminar ventas"
         )
     
     db = get_database()

@@ -34,6 +34,7 @@ class SaleItem(BaseModel):
     unitDiscount: float = 0.0
     subtotal: float
     source: Optional[str] = None
+    taxRate: float = 0.0
 
 
 class SaleBase(BaseModel):
@@ -74,6 +75,8 @@ class SaleResponse(SaleBase):
     id: str
     createdBy: str
     createdAt: datetime = Field(default_factory=datetime.utcnow)
+    cashAmount: float = 0.0
+    transferAmount: float = 0.0
     clientFirstName: Optional[str] = None
     clientLastName: Optional[str] = None
     clientDocument: Optional[str] = None
@@ -86,6 +89,14 @@ class SaleResponse(SaleBase):
     class Config:
         populate_by_name = True
         from_attributes = True
+
+
+class SaleUpdate(BaseModel):
+    # Datos para actualizar método de pago de una venta
+    # Relacionado con: routers/sales.py (update_sale)
+    paymentMethod: PaymentMethod
+    cashAmount: float = 0.0
+    transferAmount: float = 0.0
 
 
 class SaleListResponse(BaseModel):

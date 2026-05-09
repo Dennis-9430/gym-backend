@@ -129,11 +129,17 @@ async def list_clients(
 async def get_client(
     # Obtiene un cliente por ID
     # Relacionado con: models/client.py (ClientResponse)
-    client_id: int,
+    client_id: str,
     tenant: TenantResponse = Depends(get_tenant_from_header)
 ):
+    if not ObjectId.is_valid(client_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ID de cliente inválido"
+        )
+    
     db = get_database()
-    client = await db[Collections.CLIENTS].find_one({"id": client_id, "tenantId": tenant.tenantId})
+    client = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
     
     if not client:
         raise HTTPException(
@@ -141,7 +147,7 @@ async def get_client(
             detail="Client not found"
         )
     
-    return client
+    return ClientResponse(**serialize_client(client))
 
 
 @router.post("", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
@@ -176,43 +182,56 @@ async def create_client(
     return serialize_client(client_doc)
 
 
-@router.put("/{client_id}", response_model=ClientResponse)
+@router.put("/update", response_model=ClientResponse)
 async def update_client(
     # Actualiza un cliente existente
+    # El client_id se envía en el body para evitar problemas de tipado en el path parameter
     # Relacionado con: models/client.py (ClientUpdate)
-    client_id: int,
     client_data: ClientUpdate,
     tenant: TenantResponse = Depends(get_tenant_from_header)
 ):
+    client_id = client_data.client_id
+    if not client_id or not ObjectId.is_valid(client_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ID de cliente inválido"
+        )
+    
     db = get_database()
     
-    existing = await db[Collections.CLIENTS].find_one({"id": client_id, "tenantId": tenant.tenantId})
+    existing = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Client not found"
         )
     
-    update_data = {k: v for k, v in client_data.model_dump().items() if v is not None}
+    update_data = {k: v for k, v in client_data.model_dump().items() if v is not None and k != "client_id"}
     
     if update_data:
         await db[Collections.CLIENTS].update_one(
-            {"id": client_id, "tenantId": tenant.tenantId},
+            {"_id": ObjectId(client_id), "tenantId": tenant.tenantId},
             {"$set": update_data}
         )
     
-    updated = await db[Collections.CLIENTS].find_one({"id": client_id, "tenantId": tenant.tenantId})
-    return updated
+    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
+    return ClientResponse(**serialize_client(updated))
 
 
 @router.delete("/{client_id}")
 async def delete_client(
-    client_id: int,
+    client_id: str,
     tenant: TenantResponse = Depends(get_tenant_from_header)
 ):
+    if not ObjectId.is_valid(client_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ID de cliente inválido"
+        )
+    
     db = get_database()
     
-    result = await db[Collections.CLIENTS].delete_one({"id": client_id, "tenantId": tenant.tenantId})
+    result = await db[Collections.CLIENTS].delete_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
     if result.deleted_count == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -224,16 +243,22 @@ async def delete_client(
 
 @router.put("/{client_id}/membership", response_model=ClientResponse)
 async def update_membership(
-    client_id: int,
+    client_id: str,
     membership: str,
     membershipStatus: MembershipStatus,
     startDate: Optional[str] = None,
     endDate: Optional[str] = None,
     tenant: TenantResponse = Depends(get_tenant_from_header)
 ):
+    if not ObjectId.is_valid(client_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ID de cliente inválido"
+        )
+    
     db = get_database()
     
-    existing = await db[Collections.CLIENTS].find_one({"id": client_id})
+    existing = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id)})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -252,12 +277,12 @@ async def update_membership(
         update_data["membershipEndDate"] = datetime.fromisoformat(endDate)
     
     await db[Collections.CLIENTS].update_one(
-        {"id": client_id},
+        {"_id": ObjectId(client_id)},
         {"$set": update_data}
     )
     
-    updated = await db[Collections.CLIENTS].find_one({"id": client_id})
-    return updated
+    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id)})
+    return ClientResponse(**serialize_client(updated))
 
 
 @router.post("/{client_id}/assign-membership", response_model=ClientResponse)

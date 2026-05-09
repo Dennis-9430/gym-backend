@@ -14,6 +14,7 @@ class ProductBase(BaseModel):
     description: Optional[str] = Field(None, max_length=300)
     category: str = Field(default="General", max_length=50)
     unitPrice: float = Field(default=0.0, ge=0)
+    taxRate: float = Field(default=0.0, ge=0, le=100)
     stock: int = Field(default=0, ge=0)
     minStock: int = Field(default=0, ge=0)
 
@@ -32,6 +33,7 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     category: Optional[str] = None
     unitPrice: Optional[float] = None
+    taxRate: Optional[float] = None
     stock: Optional[int] = None
     minStock: Optional[int] = None
 

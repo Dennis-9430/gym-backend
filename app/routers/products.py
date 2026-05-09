@@ -130,21 +130,22 @@ async def create_product(
 ):
     db = get_database()
     
-    existing = await db[Collections.PRODUCTS].find_one({"code": product_data.code})
+    existing = await db[Collections.PRODUCTS].find_one({"code": product_data.code, "tenantId": tenant.tenantId})
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Product with this code already exists"
+            detail=f"Ya existe un producto con el código '{product_data.code}'"
         )
     
     product_doc = product_data.model_dump()
+    product_doc["tenantId"] = tenant.tenantId
     product_doc["createdAt"] = None
     product_doc["updatedAt"] = None
     
     result = await db[Collections.PRODUCTS].insert_one(product_doc)
-    product_doc["_id"] = str(result.inserted_id)
+    product_doc["_id"] = result.inserted_id
     
-    return product_doc
+    return serialize_product(product_doc)
 
 
 @router.put("/{product_id}", response_model=ProductResponse)
@@ -169,6 +170,17 @@ async def update_product(
         )
     
     update_data = {k: v for k, v in product_data.model_dump().items() if v is not None}
+    
+    # Validar código único si se está actualizando
+    if "code" in update_data:
+        code_exists = await db[Collections.PRODUCTS].find_one(
+            {"code": update_data["code"], "tenantId": tenant.tenantId, "_id": {"$ne": ObjectId(product_id)}}
+        )
+        if code_exists:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Ya existe otro producto con el código '{update_data['code']}'"
+            )
     
     if update_data:
         await db[Collections.PRODUCTS].update_one(

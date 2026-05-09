@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
-from app.models.tenant import TenantResponse
+from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.database import get_database, Collections
 from app.config import settings
 
@@ -34,11 +34,32 @@ async def get_tenant_from_header_reports(authorization: str = Header(None)) -> T
                 detail="Token inválido"
             )
         
+        # Obtener datos reales del tenant desde la base de datos
+        db = get_database()
+        tenant_doc = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+        
+        plan_from_db = SubscriptionPlan.BASIC
+        if tenant_doc and tenant_doc.get("plan"):
+            plan_str = tenant_doc.get("plan")
+            if plan_str in ["BASIC", "PREMIUM"]:
+                plan_from_db = SubscriptionPlan(plan_str)
+        
+        status_from_db = SubscriptionStatus.ACTIVE
+        if tenant_doc and tenant_doc.get("subscriptionStatus"):
+            status_str = tenant_doc.get("subscriptionStatus")
+            if status_str in ["ACTIVE", "EXPIRED", "PENDING", "CANCELLED"]:
+                status_from_db = SubscriptionStatus(status_str)
+        
         return TenantResponse(
+            id=tenant_id,
             tenantId=tenant_id,
-            name="",
-            plan="FREE",
-            status="ACTIVE"
+            email=payload.get("sub", "") or "tenant@example.com",
+            businessName=tenant_doc.get("businessName", "Mi Gimnasio") if tenant_doc else "Mi Gimnasio",
+            businessPhone=tenant_doc.get("businessPhone") if tenant_doc else None,
+            businessAddress=tenant_doc.get("businessAddress") if tenant_doc else None,
+            businessRuc=tenant_doc.get("businessRuc") if tenant_doc else None,
+            plan=plan_from_db,
+            subscriptionStatus=status_from_db,
         )
     except JWTError:
         raise HTTPException(

@@ -14,6 +14,7 @@ from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
 from app.utils.sanitize import sanitize_search_input
+from app.utils.demo_protect import check_seed_protected
 from app.config import settings
 
 
@@ -206,6 +207,9 @@ async def update_client(
             detail="Client not found"
         )
     
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.CLIENTS, client_id, "modificados")
+    
     update_data = {k: v for k, v in client_data.model_dump().items() if v is not None and k != "client_id"}
     
     if update_data:
@@ -230,6 +234,9 @@ async def delete_client(
         )
     
     db = get_database()
+    
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.CLIENTS, client_id, "eliminados")
     
     result = await db[Collections.CLIENTS].delete_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
     if result.deleted_count == 0:

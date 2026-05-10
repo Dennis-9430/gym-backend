@@ -49,7 +49,7 @@ class SaleBase(BaseModel):
     paymentStatus: PaymentStatus = PaymentStatus.VERIFIED
     voucherCode: Optional[str] = None
     voucherImage: Optional[str] = None  # Imagen del comprobante (base64)
-    clientId: Optional[int] = None
+    clientId: Optional[str] = None
     clientName: Optional[str] = None
     notes: str = ""
 

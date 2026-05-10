@@ -71,6 +71,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.rate_limit = rate_limit
     
     async def dispatch(self, request: Request, call_next):
+        # No aplicar rate limit a OPTIONS (preflight CORS)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        
         # Rutas exemptas (no rate limit)
         exempt_paths = ["/", "/health", "/docs", "/openapi.json"]
         if request.url.path in exempt_paths:

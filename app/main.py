@@ -17,6 +17,7 @@ from app.routers.reports import router as reports_router
 from app.routers.tenants import router as tenants_router
 from app.routers.notifications import router as notifications_router
 from app.routers.invoices import router as invoices_router
+from app.routers.demo import router as demo_router
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.plan_protection import PlanProtectionMiddleware
 
@@ -29,32 +30,32 @@ async def lifespan(app: FastAPI):
     try:
         # Startup
         await connect_to_mongodb()
-        print("✅ MongoDB conectado")
+        print("[OK] MongoDB conectado")
         
         # Crear índices de base de datos
         from app.database import create_indexes
         await create_indexes()
-        print("✅ Índices creados")
+        print("[OK] Indices creados")
         
         # Inicializar usuarios por defecto
         from app.auth.service import initialize_default_users
         await initialize_default_users()
-        print("✅ Usuarios default inicializados")
+        print("[OK] Usuarios default inicializados")
         
         # Inicializar empleados seed si no existen
         from app.routers.employees import initialize_seed_employees
         await initialize_seed_employees()
-        print("✅ Empleados seed inicializados")
+        print("[OK] Empleados seed inicializados")
         
         # Inicializar tenant demo si no existe
         from app.routers.tenants import initialize_tenant_demo
         await initialize_tenant_demo()
-        print("✅ Tenant demo inicializado")
+        print("[OK] Tenant demo inicializado")
         
         # Iniciar scheduler de notificaciones
         from app.scheduler.jobs import start_scheduler
         start_scheduler()
-        print("✅ Scheduler iniciado")
+        print("[OK] Scheduler iniciado")
         
     except Exception as e:
         import traceback
@@ -114,9 +115,10 @@ app.include_router(reports_router)
 app.include_router(tenants_router)
 app.include_router(notifications_router)
 app.include_router(invoices_router)
+app.include_router(demo_router)
 
-# Rate limiting - 100 requests por minuto
-app.add_middleware(RateLimitMiddleware, rate_limit=100)
+# Rate limiting - 1000 requests por minuto (suficiente para bursts del dashboard SPA)
+app.add_middleware(RateLimitMiddleware, rate_limit=1000)
 
 # Plan protection middleware - DESACTIVADO TEMPORALMENTE
 # app.add_middleware(PlanProtectionMiddleware)

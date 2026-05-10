@@ -16,6 +16,7 @@ from app.models.sale import PaymentStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
+from app.utils.demo_protect import check_seed_protected
 from app.config import settings
 
 
@@ -159,6 +160,9 @@ async def update_sale(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid sale ID"
         )
+    
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.SALES, sale_id, "modificados")
     
     update_fields = sale_data.model_dump()
     
@@ -430,6 +434,9 @@ async def delete_sale(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid sale ID"
         )
+    
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.SALES, sale_id, "eliminados")
     
     result = await db[Collections.SALES].delete_one({"_id": ObjectId(sale_id), "tenantId": tenant_id})
     if result.deleted_count == 0:

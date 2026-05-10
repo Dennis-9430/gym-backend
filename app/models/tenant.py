@@ -58,6 +58,7 @@ class TenantResponse(TenantBase):
     id: str
     tenantId: str
     plan: SubscriptionPlan = SubscriptionPlan.BASIC
+    isDemo: bool = False
     subscriptionStatus: SubscriptionStatus = SubscriptionStatus.PENDING
     subscriptionEndDate: Optional[datetime] = None
     taxRate: float = 12.0

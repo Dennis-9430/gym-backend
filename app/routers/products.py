@@ -13,6 +13,7 @@ from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
 from app.utils.sanitize import sanitize_search_input
+from app.utils.demo_protect import check_seed_protected
 from app.config import settings
 
 
@@ -169,6 +170,9 @@ async def update_product(
             detail="Product not found"
         )
     
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.PRODUCTS, product_id, "modificados")
+    
     update_data = {k: v for k, v in product_data.model_dump().items() if v is not None}
     
     # Validar código único si se está actualizando
@@ -204,6 +208,9 @@ async def delete_product(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid product ID"
         )
+    
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.PRODUCTS, product_id, "eliminados")
     
     result = await db[Collections.PRODUCTS].delete_one({"_id": ObjectId(product_id)})
     if result.deleted_count == 0:

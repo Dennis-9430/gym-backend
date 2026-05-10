@@ -22,14 +22,19 @@ COLLECTION_LOGS = "notification_logs"
 
 # ============ CONFIG ENDPOINTS ============
 
+def _serialize_config(doc: dict) -> dict:
+    """Renombra _id a id para la respuesta"""
+    if doc:
+        doc["id"] = str(doc.pop("_id"))
+    return doc
+
+
 @router.get("/configs", response_model=list[NotificationConfigResponse])
 async def list_configs(current_user: UserResponse = Depends(get_current_user)):
     """Listar todas las configuraciones - requiere auth"""
     db = get_database()
     configs = await db[COLLECTION_CONFIG].find().to_list(100)
-    for c in configs:
-        c["_id"] = str(c["_id"])
-    return configs
+    return [_serialize_config(c) for c in configs]
 
 
 @router.get("/configs/{config_type}", response_model=NotificationConfigResponse)
@@ -39,8 +44,7 @@ async def get_config(config_type: str):
     config = await db[COLLECTION_CONFIG].find_one({"type": config_type})
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
-    config["_id"] = str(config["_id"])
-    return config
+    return _serialize_config(config)
 
 
 @router.post("/configs")
@@ -84,7 +88,7 @@ async def list_logs(limit: int = 100, client_id: str = None):
     query = {"clientId": client_id} if client_id else {}
     logs = await db[COLLECTION_LOGS].find(query).sort("sentAt", -1).to_list(limit)
     for log in logs:
-        log["_id"] = str(log["_id"])
+        log["id"] = str(log.pop("_id"))
     return logs
 
 

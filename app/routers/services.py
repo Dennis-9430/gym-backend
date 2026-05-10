@@ -11,6 +11,7 @@ from app.models.service import (
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse, UserRole
 from app.database import get_database, Collections
+from app.utils.demo_protect import check_seed_protected
 
 
 router = APIRouter(prefix="/api/services", tags=["Services"])
@@ -54,7 +55,7 @@ async def list_services(
         query["type"] = service_type
     
     total = await db[Collections.SERVICES].count_documents(query)
-    cursor = db[Collections.SERVICES].find(query).skip(skip).limit(limit)
+    cursor = db[Collections.SERVICES].find(query).sort([("price", 1)]).skip(skip).limit(limit)
     services = await cursor.to_list(length=limit)
     
     return {
@@ -154,6 +155,10 @@ async def update_service(
             detail="Service not found"
         )
     
+    # Proteger seed data en cuentas demo
+    if current_user.tenantId:
+        await check_seed_protected(db, current_user.tenantId, Collections.SERVICES, service_id, "modificados")
+    
     update_data = {k: v for k, v in service_data.model_dump().items() if v is not None}
     update_data["updatedAt"] = datetime.utcnow()
     
@@ -185,6 +190,10 @@ async def delete_service(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid service ID"
         )
+    
+    # Proteger seed data en cuentas demo
+    if current_user.tenantId:
+        await check_seed_protected(db, current_user.tenantId, Collections.SERVICES, service_id, "eliminados")
     
     # Hard delete - eliminar de la base de datos
     result = await db[Collections.SERVICES].delete_one({

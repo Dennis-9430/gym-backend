@@ -74,6 +74,26 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Auto-cleanup para cuentas demo: borra datos previos al login
+    if user.tenantId:
+        from app.database import get_database, Collections
+        db = get_database()
+        tenant = await db[Collections.TENANTS].find_one({"tenantId": user.tenantId})
+        if tenant and tenant.get("isDemo", False):
+            collections_to_clean = [
+                Collections.SALES,
+                Collections.CLIENTS,
+                Collections.INVOICES,
+                Collections.PRODUCTS,
+                Collections.ATTENDANCE,
+            ]
+            for collection_name in collections_to_clean:
+                # Solo borra datos NO semilla (isSeed != true)
+                await db[collection_name].delete_many({
+                    "tenantId": user.tenantId,
+                    "isSeed": {"$ne": True},
+                })
+    
     # Incluir toda la información del usuario en el token
     token = await create_token(
         username=user.username,

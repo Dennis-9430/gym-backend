@@ -307,6 +307,22 @@ async def login_tenant(data: TenantLoginRequest):
             detail="Suscripción inactiva. Contacte al administrador."
         )
     
+    # Auto-cleanup para cuentas demo: borra datos creados en sesiones anteriores
+    if tenant.get("isDemo", False):
+        collections_to_clean = [
+            Collections.SALES,
+            Collections.CLIENTS,
+            Collections.INVOICES,
+            Collections.PRODUCTS,
+            Collections.ATTENDANCE,
+        ]
+        for collection_name in collections_to_clean:
+            # Solo borra datos NO semilla (isSeed != true)
+            await db[collection_name].delete_many({
+                "tenantId": tenant["tenantId"],
+                "isSeed": {"$ne": True},
+            })
+    
     # Crear token JWT con datos del employee
     token_data = {
         "sub": employee["email"],
@@ -711,6 +727,7 @@ async def initialize_tenant_demo():
             "closingHour": "22:00",
             "wsspReminderDays": 3,
             "wsspEnabled": False,
+            "isDemo": True,
             "createdAt": datetime.utcnow(),
             "updatedAt": datetime.utcnow(),
         }
@@ -718,6 +735,18 @@ async def initialize_tenant_demo():
         
         # Crear servicios default para demo-basic
         await create_default_services("demo-basic-001")
+    elif not existing_basic.get("isDemo"):
+        # Migrar tenants demo existentes que no tienen isDemo
+        await db.tenants.update_one(
+            {"tenantId": "demo-basic-001"},
+            {"$set": {"isDemo": True}}
+        )
+    
+    # Crear/actualizar servicios default (idempotente: solo crea si no existe)
+    await create_default_services("demo-basic-001")
+    
+    # Seed data demo-basic (idempotente: solo crea si no existe)
+    await seed_demo_data("demo-basic-001")
     
     # Demo PRO - buscar por tenantId
     existing_pro = await db.tenants.find_one({"tenantId": "demo-pro-001"})
@@ -739,6 +768,7 @@ async def initialize_tenant_demo():
             "closingHour": "22:00",
             "wsspReminderDays": 3,
             "wsspEnabled": False,
+            "isDemo": True,
             "createdAt": datetime.utcnow(),
             "updatedAt": datetime.utcnow(),
         }
@@ -746,6 +776,18 @@ async def initialize_tenant_demo():
         
         # Crear servicios default para demo-pro
         await create_default_services("demo-pro-001")
+    elif not existing_pro.get("isDemo"):
+        # Migrar tenants demo existentes que no tienen isDemo
+        await db.tenants.update_one(
+            {"tenantId": "demo-pro-001"},
+            {"$set": {"isDemo": True}}
+        )
+    
+    # Crear/actualizar servicios default (idempotente: solo crea si no existe)
+    await create_default_services("demo-pro-001")
+    
+    # Seed data demo-pro (idempotente: solo crea si no existe)
+    await seed_demo_data("demo-pro-001")
 
 
 async def create_default_services(tenant_id: str):
@@ -763,6 +805,33 @@ async def create_default_services(tenant_id: str):
             "durationUnit": "days",
             "type": ServiceType.DAILY.value,
             "isActive": True,
+            "isSeed": True,
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        },
+        {
+            "tenantId": tenant_id,
+            "name": "Día de Prueba",
+            "description": "Acceso de prueba por un día",
+            "price": 2.00,
+            "duration": 1,
+            "durationUnit": "days",
+            "type": ServiceType.DAILY.value,
+            "isActive": True,
+            "isSeed": True,
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        },
+        {
+            "tenantId": tenant_id,
+            "name": "Quincenal",
+            "description": "Membresía quincenal",
+            "price": 18.00,
+            "duration": 15,
+            "durationUnit": "days",
+            "type": ServiceType.MEMBERSHIP.value,
+            "isActive": True,
+            "isSeed": True,
             "createdAt": datetime.utcnow(),
             "updatedAt": datetime.utcnow(),
         },
@@ -775,10 +844,267 @@ async def create_default_services(tenant_id: str):
             "durationUnit": "days",
             "type": ServiceType.MEMBERSHIP.value,
             "isActive": True,
+            "isSeed": True,
             "createdAt": datetime.utcnow(),
             "updatedAt": datetime.utcnow(),
-        }
+        },
     ]
     
     for service_data in default_services:
-        await db.services.insert_one(service_data)
+        # Solo crear si no existen servicios seed
+        existing = await db.services.find_one({"tenantId": tenant_id, "name": service_data["name"]})
+        if not existing:
+            await db.services.insert_one(service_data)
+
+
+async def seed_demo_data(tenant_id: str):
+    """Crea datos semilla fijos para tenants demo.
+    Estos datos tienen isSeed=True y NO son eliminados por el cleanup.
+    Es IDEMPOTENTE: si ya existen productos seed para este tenant, no hace nada.
+    """
+    db = get_database()
+    from app.models.service import ServiceType
+    
+    # Verificar si ya existen datos seed para este tenant
+    existing_seed = await db.products.find_one({"tenantId": tenant_id, "isSeed": True})
+    if existing_seed:
+        return
+    
+    # ============================================================
+    # 1. PRODUCTOS (10 con precios variados)
+    # ============================================================
+    products_data = [
+        {"code": "BAR001", "name": "Barra Proteica", "description": "Barra de proteína 30g", "category": "Nutrición", "unitPrice": 2.50, "stock": 50, "minStock": 10},
+        {"code": "BEB001", "name": "Bebida Energética", "description": "Bebida isotónica 500ml", "category": "Nutrición", "unitPrice": 3.00, "stock": 40, "minStock": 10},
+        {"code": "TOA001", "name": "Toalla Deportiva", "description": "Toalla microfibra 60x30cm", "category": "Accesorios", "unitPrice": 15.00, "stock": 20, "minStock": 5},
+        {"code": "SHA001", "name": "Shaker", "description": "Shaker 600ml con mezclador", "category": "Accesorios", "unitPrice": 8.00, "stock": 30, "minStock": 5},
+        {"code": "CUE001", "name": "Cuerda para Saltar", "description": "Cuerda ajustable con rodamientos", "category": "Equipamiento", "unitPrice": 12.00, "stock": 15, "minStock": 3},
+        {"code": "BAN001", "name": "Bandas de Resistencia", "description": "Set de 5 bandas de diferente intensidad", "category": "Equipamiento", "unitPrice": 20.00, "stock": 15, "minStock": 3},
+        {"code": "GUA001", "name": "Guantes de Gimnasio", "description": "Guantes con soporte de muñeca", "category": "Accesorios", "unitPrice": 25.00, "stock": 12, "minStock": 3},
+        {"code": "MAT001", "name": "Mat de Yoga", "description": "Mat antideslizante 6mm", "category": "Equipamiento", "unitPrice": 35.00, "stock": 10, "minStock": 2},
+        {"code": "BOL001", "name": "Bolso Deportivo", "description": "Bolso impermeable 40L", "category": "Accesorios", "unitPrice": 45.00, "stock": 8, "minStock": 2},
+        {"code": "SUP001", "name": "Pack Suplementos", "description": "Combo proteína + creatina + BCAA", "category": "Nutrición", "unitPrice": 60.00, "stock": 5, "minStock": 1},
+    ]
+    
+    product_ids = {}
+    for p in products_data:
+        doc = {
+            **p,
+            "tenantId": tenant_id,
+            "taxRate": 0.0,
+            "isSeed": True,
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        }
+        result = await db.products.insert_one(doc)
+        product_ids[p["code"]] = str(result.inserted_id)
+    
+    # ============================================================
+    # 2. CLIENTES (2 recién registrados sin membresía + 2 activos)
+    # ============================================================
+    clients_data = [
+        {
+            "documentType": "CEDULA", "documentNumber": "0000000000",
+            "firstName": "Carlos", "lastName": "López",
+            "phone": None, "email": None, "address": None,
+            "membership": "Por registrar", "membershipStatus": "NONE",
+            "notes": "Cliente recién registrado, sin membresía asignada",
+        },
+        {
+            "documentType": "CEDULA", "documentNumber": "0000000001",
+            "firstName": "Ana", "lastName": "Martínez",
+            "phone": None, "email": None, "address": None,
+            "membership": "Por registrar", "membershipStatus": "NONE",
+            "notes": "Cliente recién registrado, sin membresía asignada",
+        },
+        {
+            "documentType": "CEDULA", "documentNumber": "1234567890",
+            "firstName": "Juan", "lastName": "Pérez",
+            "phone": "0991234567", "email": "juan.perez@email.com",
+            "address": "Av. Principal 123",
+            "membership": "Mensual", "membershipStatus": "ACTIVE",
+            "membershipStartDate": datetime.utcnow(),
+            "membershipEndDate": datetime(2026, 6, 9),
+        },
+        {
+            "documentType": "CEDULA", "documentNumber": "0987654321",
+            "firstName": "María", "lastName": "García",
+            "phone": "0997654321", "email": "maria.garcia@email.com",
+            "address": "Calle Secundaria 456",
+            "membership": "Pago Diario", "membershipStatus": "ACTIVE",
+            "membershipStartDate": datetime.utcnow(),
+            "membershipEndDate": datetime.utcnow() + timedelta(days=1),
+        },
+    ]
+    
+    client_ids = {}
+    for c in clients_data:
+        doc = {
+            **c,
+            "tenantId": tenant_id,
+            "fingerPrint": False,
+            "emergencyContact": None,
+            "emergencyPhone": None,
+            "notes": None,
+            "isSeed": True,
+            "createdAt": datetime.utcnow(),
+        }
+        result = await db.clients.insert_one(doc)
+        client_ids[c["firstName"]] = str(result.inserted_id)
+    
+    # ============================================================
+    # 3. SERVICIOS (referencias para ventas)
+    # ============================================================
+    daily_service = await db.services.find_one({"tenantId": tenant_id, "name": "Pago Diario"})
+    monthly_service = await db.services.find_one({"tenantId": tenant_id, "name": "Mensual"})
+    daily_service_id = str(daily_service["_id"]) if daily_service else None
+    monthly_service_id = str(monthly_service["_id"]) if monthly_service else None
+    
+    # ============================================================
+    # 4. VENTAS - Historial para clientes activos
+    # ============================================================
+    sales_seed = [
+        # Juan Pérez: Mensual ($30) + Barra Proteica ($2.50)
+        {
+            "items": [
+                {"productName": "Mensual", "description": "Membresía mensual", "quantity": 1, "unitPrice": 30.00, "subtotal": 30.00, "source": "MEMBERSHIP", "serviceId": monthly_service_id},
+                {"productName": "Barra Proteica", "description": "", "quantity": 1, "unitPrice": 2.50, "subtotal": 2.50, "source": "PRODUCT", "productId": product_ids.get("BAR001")},
+            ],
+            "subtotal": 32.50, "total": 32.50,
+            "clientName": "Juan Pérez", "clientId": client_ids.get("Juan"),
+            "cashAmount": 32.50, "paymentMethod": "CASH",
+        },
+        # María García: Pago Diario ($2.50) + Bebida Energética ($3.00)
+        {
+            "items": [
+                {"productName": "Pago Diario", "description": "Acceso por un día", "quantity": 1, "unitPrice": 2.50, "subtotal": 2.50, "source": "DAILY", "serviceId": daily_service_id},
+                {"productName": "Bebida Energética", "description": "", "quantity": 1, "unitPrice": 3.00, "subtotal": 3.00, "source": "PRODUCT", "productId": product_ids.get("BEB001")},
+            ],
+            "subtotal": 5.50, "total": 5.50,
+            "clientName": "María García", "clientId": client_ids.get("María"),
+            "cashAmount": 5.50, "paymentMethod": "CASH",
+        },
+        # 2 membresías diarias extra
+        {
+            "items": [
+                {"productName": "Pago Diario", "description": "Acceso por un día", "quantity": 2, "unitPrice": 2.50, "subtotal": 5.00, "source": "DAILY", "serviceId": daily_service_id},
+            ],
+            "subtotal": 5.00, "total": 5.00,
+            "clientName": "Venta Directa", "cashAmount": 5.00, "paymentMethod": "CASH",
+        },
+        # 2 ventas de productos extra
+        {
+            "items": [
+                {"productName": "Toalla Deportiva", "description": "", "quantity": 1, "unitPrice": 15.00, "subtotal": 15.00, "source": "PRODUCT", "productId": product_ids.get("TOA001")},
+            ],
+            "subtotal": 15.00, "total": 15.00,
+            "clientName": "Venta Directa", "cashAmount": 15.00, "paymentMethod": "CASH",
+        },
+        {
+            "items": [
+                {"productName": "Shaker", "description": "", "quantity": 2, "unitPrice": 8.00, "subtotal": 16.00, "source": "PRODUCT", "productId": product_ids.get("SHA001")},
+            ],
+            "subtotal": 16.00, "total": 16.00,
+            "clientName": "Venta Directa", "cashAmount": 16.00, "paymentMethod": "CASH",
+        },
+        # Renovación mensual pendiente (para Juan Pérez, el cliente mensual activo)
+        {
+            "items": [
+                {"productName": "Mensual", "description": "Renovación mensual - Pendiente", "quantity": 1, "unitPrice": 30.00, "subtotal": 30.00, "source": "MEMBERSHIP", "serviceId": monthly_service_id},
+            ],
+            "subtotal": 30.00, "total": 30.00,
+            "clientName": "Juan Pérez",
+            "clientId": client_ids.get("Juan"),
+            "cashAmount": 0.0, "paymentMethod": "TRANSFER", "paymentStatus": "pending",
+            "voucherCode": "PEND-001",
+        },
+    ]
+    
+    sale_ids = []
+    for i, s in enumerate(sales_seed):
+        doc = {
+            **s,
+            "tenantId": tenant_id,
+            "tax": 0.0,
+            "paymentStatus": s.get("paymentStatus", "verified"),
+            "transferAmount": 0.0,
+            "clientFirstName": None, "clientLastName": None,
+            "clientDocument": None, "clientEmail": None,
+            "clientPhone": None, "clientAddress": None,
+            "generateInvoice": False, "invoiceEmail": None,
+            "createdBy": "demo-basic@gmail.com",
+            "createdAt": datetime.utcnow() - timedelta(hours=i * 2),
+            "isSeed": True,
+        }
+        if not doc.get("paymentStatus"):
+            doc["paymentStatus"] = "verified"
+        result = await db.sales.insert_one(doc)
+        sale_ids.append(str(result.inserted_id))
+    
+    # ============================================================
+    # 5. FACTURAS
+    # ============================================================
+    # Buscar datos del tenant para datos de negocio
+    tenant_doc = await db.tenants.find_one({"tenantId": tenant_id})
+    business = {
+        "name": tenant_doc.get("businessName", "Gimnasio Demo"),
+        "ruc": tenant_doc.get("businessRuc", "9999999999001"),
+        "address": tenant_doc.get("businessAddress", "Dirección del gimnasio"),
+        "phone": tenant_doc.get("businessPhone", "0999999999"),
+        "email": tenant_doc.get("email", "demo@gimnasio.com"),
+    }
+    
+    invoices_seed = [
+        # Factura Juan Pérez
+        {
+            "type": "MEMBERSHIP",
+            "client": {"documentNumber": "1234567890", "firstName": "Juan", "lastName": "Pérez", "email": "juan.perez@email.com"},
+            "items": [
+                {"name": "Mensual", "quantity": 1, "unitPrice": 30.00, "subtotal": 30.00},
+                {"name": "Barra Proteica", "quantity": 1, "unitPrice": 2.50, "subtotal": 2.50},
+            ],
+            "totals": {"subtotal": 32.50, "total": 32.50},
+            "payment": {"method": "CASH", "cashAmount": 32.50, "paid": 32.50},
+        },
+        # Factura María García
+        {
+            "type": "MEMBERSHIP",
+            "client": {"documentNumber": "0987654321", "firstName": "María", "lastName": "García", "email": "maria.garcia@email.com"},
+            "items": [
+                {"name": "Pago Diario", "quantity": 1, "unitPrice": 2.50, "subtotal": 2.50},
+                {"name": "Bebida Energética", "quantity": 1, "unitPrice": 3.00, "subtotal": 3.00},
+            ],
+            "totals": {"subtotal": 5.50, "total": 5.50},
+            "payment": {"method": "CASH", "cashAmount": 5.50, "paid": 5.50},
+        },
+        # Factura de compra de productos
+        {
+            "type": "PRODUCT",
+            "client": {"documentNumber": "9999999999", "firstName": "Proveedor", "lastName": "Mayorista", "email": "proveedor@email.com"},
+            "items": [
+                {"name": "Barra Proteica", "quantity": 20, "unitPrice": 1.50, "subtotal": 30.00},
+                {"name": "Bebida Energética", "quantity": 15, "unitPrice": 2.00, "subtotal": 30.00},
+                {"name": "Toalla Deportiva", "quantity": 10, "unitPrice": 8.00, "subtotal": 80.00},
+                {"name": "Shaker", "quantity": 10, "unitPrice": 4.00, "subtotal": 40.00},
+            ],
+            "totals": {"subtotal": 180.00, "total": 180.00},
+            "payment": {"method": "TRANSFER", "cashAmount": 0.0, "transferAmount": 180.00, "paid": 180.00, "voucherCode": "FAC-PROV-001"},
+        },
+    ]
+    
+    for inv_data in invoices_seed:
+        doc = {
+            "tenantId": tenant_id,
+            "type": inv_data["type"],
+            "invoiceNumber": f"DEMO-{inv_data['type'][:4]}-{datetime.now().year}-{len(invoices_seed):06d}",
+            "business": business,
+            "client": inv_data["client"],
+            "items": inv_data["items"],
+            "totals": inv_data["totals"],
+            "payment": inv_data["payment"],
+            "status": "GENERATED",
+            "createdBy": "demo-basic@gmail.com",
+            "createdAt": datetime.utcnow(),
+            "isSeed": True,
+        }
+        await db.invoices.insert_one(doc)

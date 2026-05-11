@@ -257,24 +257,6 @@ async def update_employee(
     
     # PROTECCIÓN: El OWNER no puede cambiarse a sí mismo - email, role, status
     if existing.get("isOwner", False):
-        protected_fields = ["email", "role", "status", "isOwner", "tenantId"]
-        update_dict_protected = update_data.model_dump(exclude_unset=True)
-        for field in protected_fields:
-            if field in update_dict_protected and update_dict_protected[field] is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"No puedes modificar el campo {field} del owner"
-                )
-    
-    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
-    if not existing:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Empleado no encontrado"
-        )
-    
-    # PROTECCIÓN: El OWNER no puede cambiarse a sí mismo - email, role, status
-    if existing.get("isOwner", False):
         # El owner solo puede cambiar: firstName, lastName, phone, permissions
         protected_fields = ["email", "role", "status", "isOwner"]
         for field in protected_fields:
@@ -316,8 +298,9 @@ async def update_employee(
                 detail="El username ya existe en este negocio"
             )
     
+    # SEGURIDAD: filtrar por tenantId al actualizar
     await db[Collections.EMPLOYEES].update_one(
-        {"_id": ObjectId(employee_id)},
+        {"_id": ObjectId(employee_id), "tenantId": tenant.tenantId},
         {"$set": update_dict}
     )
     
@@ -328,7 +311,8 @@ async def update_employee(
             {"$set": {"password_hash": update_dict["password"]}}
         )
     
-    updated = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id)})
+    # SEGURIDAD: read-back también filtra por tenantId
+    updated = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
     return EmployeeResponse(**serialize_employee(updated))
 
 
@@ -370,7 +354,8 @@ async def delete_employee(
             detail="Un administrador no puede eliminar a otro administrador"
         )
     
-    result = await db[Collections.EMPLOYEES].delete_one({"_id": ObjectId(employee_id)})
+    # SEGURIDAD: filtrar por tenantId al eliminar
+    result = await db[Collections.EMPLOYEES].delete_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
     
     # También eliminar el usuario asociado para que no pueda hacer login
     await db[Collections.USERS].delete_one({"employeeId": employee_id})

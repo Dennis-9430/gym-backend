@@ -135,7 +135,8 @@ async def get_sale(
             detail="Invalid sale ID"
         )
     
-    sale = await db[Collections.SALES].find_one({"_id": ObjectId(sale_id)})
+    # SEGURIDAD: filtrar por tenantId para evitar fuga entre negocios
+    sale = await db[Collections.SALES].find_one({"_id": ObjectId(sale_id), "tenantId": tenant.tenantId})
     if not sale:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -238,8 +239,9 @@ async def create_sale(
                 )
             
             new_stock = current_stock - quantity
+            # SEGURIDAD: filtrar por tenantId al descontar stock
             await db[Collections.PRODUCTS].update_one(
-                {"_id": ObjectId(item["productId"])},
+                {"_id": ObjectId(item["productId"]), "tenantId": tenant.tenantId},
                 {"$set": {"stock": new_stock}}
             )
     
@@ -287,13 +289,15 @@ async def generate_invoice_from_sale(db, sale_doc: dict, tenant_id: str, invoice
         item_tax_rate = 0
         service_id = item.get("serviceId")
         if service_id:
-            service = await db[Collections.SERVICES].find_one({"_id": ObjectId(service_id)})
+            # SEGURIDAD: filtrar por tenantId al buscar servicio
+            service = await db[Collections.SERVICES].find_one({"_id": ObjectId(service_id), "tenantId": tenant_id})
             if service:
                 item_tax_rate = service.get("taxRate", 0)
         else:
             product_id = item.get("productId")
             if product_id:
-                product = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id)})
+                # SEGURIDAD: filtrar por tenantId al buscar producto
+                product = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant_id})
                 if product:
                     item_tax_rate = product.get("taxRate", 0)
         

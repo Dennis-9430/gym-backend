@@ -73,15 +73,28 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware - permite todos los orígenes para desarrollo
-# En producción, cambiar allow_origins a dominios específicos
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS middleware - orígenes configurables por ALLOWED_ORIGINS
+# SEGURIDAD: En producción, definir ALLOWED_ORIGINS con dominios específicos
+# Ej: ALLOWED_ORIGINS=https://app.gymtuempresa.com,https://gymtuempresa.com
+allowed_origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
+if allowed_origins == ["*"]:
+    # Modo local: permitir todos (allow_credentials=False cuando es *)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    # Modo producción: orígenes específicos
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.get("/")

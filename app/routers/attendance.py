@@ -34,7 +34,8 @@ async def list_attendance(
 ):
     db = get_database()
     
-    query = {}
+    # SEGURIDAD: filtrar por tenantId del usuario autenticado
+    query = {"tenantId": current_user.tenantId}
     if client_id:
         query["clientId"] = client_id
     if date:
@@ -59,9 +60,11 @@ async def check_in(
     
     today = datetime.utcnow().strftime("%Y-%m-%d")
     
+    # SEGURIDAD: verificar que el cliente pertenezca al mismo tenant
     existing = await db[Collections.ATTENDANCE].find_one({
         "clientId": data.clientId,
         "date": today,
+        "tenantId": current_user.tenantId,
         "checkOut": None
     })
     
@@ -77,7 +80,8 @@ async def check_in(
         "clientName": data.clientName,
         "checkIn": now,
         "checkOut": None,
-        "date": today
+        "date": today,
+        "tenantId": current_user.tenantId
     }
     
     result = await db[Collections.ATTENDANCE].insert_one(record)
@@ -99,7 +103,8 @@ async def check_out(
             detail="Invalid attendance ID"
         )
     
-    record = await db[Collections.ATTENDANCE].find_one({"_id": ObjectId(attendance_id)})
+    # SEGURIDAD: filtrar por tenantId
+    record = await db[Collections.ATTENDANCE].find_one({"_id": ObjectId(attendance_id), "tenantId": current_user.tenantId})
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -114,11 +119,12 @@ async def check_out(
     
     now = datetime.utcnow()
     await db[Collections.ATTENDANCE].update_one(
-        {"_id": ObjectId(attendance_id)},
+        {"_id": ObjectId(attendance_id), "tenantId": current_user.tenantId},
         {"$set": {"checkOut": now}}
     )
     
-    updated = await db[Collections.ATTENDANCE].find_one({"_id": ObjectId(attendance_id)})
+    # SEGURIDAD: read-back también filtra por tenantId
+    updated = await db[Collections.ATTENDANCE].find_one({"_id": ObjectId(attendance_id), "tenantId": current_user.tenantId})
     return serialize_attendance(updated)
 
 
@@ -129,9 +135,11 @@ async def get_today_attendance(
     db = get_database()
     today = datetime.utcnow().strftime("%Y-%m-%d")
     
-    total = await db[Collections.ATTENDANCE].count_documents({"date": today})
+    # SEGURIDAD: filtrar por tenantId
+    total = await db[Collections.ATTENDANCE].count_documents({"date": today, "tenantId": current_user.tenantId})
     checked_in = await db[Collections.ATTENDANCE].count_documents({
         "date": today,
+        "tenantId": current_user.tenantId,
         "checkOut": None
     })
     

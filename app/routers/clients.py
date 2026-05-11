@@ -121,9 +121,11 @@ async def list_clients(
         
         return {"clients": [serialize_client(c) for c in clients], "total": total}
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        # SEGURIDAD: log interno, respuesta genérica
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error listing clients: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error interno al listar clientes")
 
 
 @router.get("/{client_id}", response_model=ClientResponse)
@@ -265,7 +267,8 @@ async def update_membership(
     
     db = get_database()
     
-    existing = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id)})
+    # SEGURIDAD: filtrar por tenantId para evitar fuga entre negocios
+    existing = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -284,11 +287,12 @@ async def update_membership(
         update_data["membershipEndDate"] = datetime.fromisoformat(endDate)
     
     await db[Collections.CLIENTS].update_one(
-        {"_id": ObjectId(client_id)},
+        {"_id": ObjectId(client_id), "tenantId": tenant.tenantId},
         {"$set": update_data}
     )
     
-    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id)})
+    # SEGURIDAD: read-back también filtra por tenantId
+    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
     return ClientResponse(**serialize_client(updated))
 
 
@@ -368,9 +372,10 @@ async def assign_membership_with_service(
     }
     
     await db[Collections.CLIENTS].update_one(
-        {"_id": ObjectId(client_id)},
+        {"_id": ObjectId(client_id), "tenantId": tenant.tenantId},
         {"$set": update_data}
     )
     
-    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id)})
+    # SEGURIDAD: read-back también filtra por tenantId
+    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
     return serialize_client(updated)

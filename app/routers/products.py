@@ -114,7 +114,8 @@ async def get_product(
             detail="Invalid product ID"
         )
     
-    product = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id)})
+    # SEGURIDAD: filtrar por tenantId para evitar fuga entre negocios
+    product = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant.tenantId})
     if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -163,7 +164,8 @@ async def update_product(
             detail="Invalid product ID"
         )
     
-    existing = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id)})
+    # SEGURIDAD: filtrar por tenantId para evitar fuga entre negocios
+    existing = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant.tenantId})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -188,11 +190,12 @@ async def update_product(
     
     if update_data:
         await db[Collections.PRODUCTS].update_one(
-            {"_id": ObjectId(product_id)},
+            {"_id": ObjectId(product_id), "tenantId": tenant.tenantId},
             {"$set": update_data}
         )
     
-    updated = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id)})
+    # SEGURIDAD: read-back también filtra por tenantId
+    updated = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant.tenantId})
     return serialize_product(updated)
 
 
@@ -237,7 +240,8 @@ async def update_stock(
             detail="Invalid product ID"
         )
     
-    existing = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id)})
+    # SEGURIDAD: filtrar por tenantId para evitar fuga entre negocios
+    existing = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant.tenantId})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -261,9 +265,10 @@ async def update_stock(
         )
     
     await db[Collections.PRODUCTS].update_one(
-        {"_id": ObjectId(product_id)},
+        {"_id": ObjectId(product_id), "tenantId": tenant.tenantId},
         {"$set": {"stock": new_stock}}
     )
     
-    updated = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id)})
+    # SEGURIDAD: read-back también filtra por tenantId
+    updated = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant.tenantId})
     return serialize_product(updated)

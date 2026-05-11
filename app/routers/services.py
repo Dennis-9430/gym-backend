@@ -164,11 +164,14 @@ async def update_service(
     
     if update_data:
         await db[Collections.SERVICES].update_one(
-            {"_id": ObjectId(service_id)},
+            {"_id": ObjectId(service_id), "tenantId": current_user.tenantId},
             {"$set": update_data}
         )
     
-    updated = await db[Collections.SERVICES].find_one({"_id": ObjectId(service_id)})
+    updated = await db[Collections.SERVICES].find_one({
+        "_id": ObjectId(service_id),
+        "tenantId": current_user.tenantId
+    })
     return serialize_service(updated)
 
 

@@ -7,6 +7,7 @@ from datetime import datetime
 from bson import ObjectId
 from jose import JWTError, jwt
 import asyncio
+from pymongo import ReturnDocument
 from app.models.sale import (
     SaleCreate, SaleUpdate, SaleResponse, SaleListResponse, SaleItem, PaymentMethod
 )
@@ -178,7 +179,7 @@ async def update_sale(
     result = await db[Collections.SALES].find_one_and_update(
         {"_id": ObjectId(sale_id), "tenantId": tenant.tenantId},
         {"$set": update_fields},
-        return_document=True
+        return_document=ReturnDocument.AFTER
     )
     
     if not result:
@@ -246,6 +247,7 @@ async def create_sale(
             )
     
     result = await db[Collections.SALES].insert_one(sale_doc)
+    sale_doc["_id"] = result.inserted_id
     
     # Generar factura si el checkbox está marcado
     if sale_data.generateInvoice:
@@ -263,9 +265,10 @@ async def generate_invoice_from_sale(db, sale_doc: dict, tenant_id: str, invoice
     counter = await db.counters.find_one_and_update(
         {"tenantId": tenant_id},
         {"$inc": {"invoiceCount": 1}},
-        upsert=True
+        upsert=True,
+        return_document=ReturnDocument.AFTER
     )
-    invoice_count = counter.get("invoiceCount", 1) if counter else 1
+    invoice_count = counter["invoiceCount"]
     invoice_number = f"FAC-{datetime.now().year}-{invoice_count:06d}"
     
     # Preparar datos del cliente - usar invoiceEmail proveído o del cliente o null

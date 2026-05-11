@@ -3,7 +3,10 @@
 """MongoDB database connection using Motor async driver"""
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from typing import Optional
+import logging
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 _client: Optional[AsyncIOMotorClient] = None
 _database: Optional[AsyncIOMotorDatabase] = None
@@ -16,7 +19,7 @@ async def connect_to_mongodb() -> None:
     global _client, _database
     _client = AsyncIOMotorClient(settings.MONGODB_URL)
     _database = _client[settings.MONGODB_DB_NAME]
-    
+
     # Verifica que la conexión funcione
     await _client.admin.command("ping")
 
@@ -39,7 +42,6 @@ def get_database() -> AsyncIOMotorDatabase:
     return _database
 
 
-# Funciones helper para obtener colecciones
 async def get_collection(name: str):
     # Obtiene una colección por nombre
     # Relacionado con: routers/*
@@ -48,8 +50,6 @@ async def get_collection(name: str):
     return db[name]
 
 
-# Constantes con los nombres de las colecciones
-# Relacionado con: models/*
 class Collections:
     TENANTS = "tenants"
     USERS = "users"
@@ -64,45 +64,36 @@ class Collections:
 
 
 async def create_indexes():
-    """Crear índices - borra y recrea para evitar conflictos"""
+    """Crear índices idempotentes sin degradar unicidad silenciosamente."""
     db = get_database()
-    
+
     index_configs = [
-        # Fuertemente únicos
         (db[Collections.TENANTS], "tenantId", True),
         (db[Collections.TENANTS], "email", True),
         (db[Collections.USERS], "username", True),
-        # Compuestos por tenant
         (db[Collections.EMPLOYEES], [("tenantId", 1), ("username", 1)], True),
         (db[Collections.CLIENTS], [("tenantId", 1), ("documentNumber", 1)], True),
         (db[Collections.PRODUCTS], [("tenantId", 1), ("code", 1)], True),
         (db[Collections.SERVICES], [("tenantId", 1), ("name", 1)], True),
         (db[Collections.USERS], [("tenantId", 1), ("employeeId", 1)], False),
+        (db[Collections.INVOICES], [("tenantId", 1), ("invoiceNumber", 1)], True),
         (db[Collections.INVOICES], [("tenantId", 1), ("createdAt", -1)], False),
         (db[Collections.SALES], [("tenantId", 1), ("createdAt", -1)], False),
         (db[Collections.ATTENDANCE], [("tenantId", 1), ("clientId", 1), ("checkIn", -1)], False),
-        # Colecciones auxiliares
         (db[Collections.COUNTERS], [("tenantId", 1)], True),
+        (db["notification_configs"], [("tenantId", 1), ("type", 1)], True),
+        (db["notification_logs"], [("tenantId", 1), ("clientId", 1), ("sentAt", -1)], False),
     ]
-    
+
     for collection, keys, unique in index_configs:
         try:
-            # Borrar índice existente con mismo nombre
-            try:
-                await collection.drop_index(keys)
-            except:
-                pass
-            # Crear nuevo
             await collection.create_index(keys, unique=unique, background=True)
         except Exception as e:
-            # Si hay duplicados, crear sin unique
-            if "duplicate" in str(e).lower():
-                try:
-                    await collection.drop_index(keys)
-                except:
-                    pass
-                await collection.create_index(keys, unique=False, background=True)
-            else:
-                pass
-    
-   
+            if "duplicate" in str(e).lower() and unique:
+                logger.warning(
+                    "No se pudo crear índice único %s en %s por datos duplicados. Se mantiene el estado actual.",
+                    keys,
+                    collection.name,
+                )
+                continue
+            logger.warning("No se pudo crear índice %s en %s: %s", keys, collection.name, e)

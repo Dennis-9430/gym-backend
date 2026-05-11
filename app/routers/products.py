@@ -215,7 +215,10 @@ async def delete_product(
     # Proteger seed data en cuentas demo
     await check_seed_protected(db, tenant.tenantId, Collections.PRODUCTS, product_id, "eliminados")
     
-    result = await db[Collections.PRODUCTS].delete_one({"_id": ObjectId(product_id)})
+    result = await db[Collections.PRODUCTS].delete_one({
+        "_id": ObjectId(product_id),
+        "tenantId": tenant.tenantId
+    })
     if result.deleted_count == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

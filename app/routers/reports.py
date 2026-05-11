@@ -15,6 +15,10 @@ from app.config import settings
 router = APIRouter(prefix="/api/reports", tags=["Reports"])
 
 
+# NOTA: get_tenant_from_header_* está duplicado en 7 routers (reports, sales, products,
+# clients, tenants, invoices, employees). Técnicamente debería unificarse en una
+# dependencia común tipo get_current_tenant() en app/auth/deps.py.
+# Pendiente para refactor post-seguridad.
 async def get_tenant_from_header_reports(authorization: str = Header(None)) -> TenantResponse:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
@@ -53,7 +57,7 @@ async def get_tenant_from_header_reports(authorization: str = Header(None)) -> T
         return TenantResponse(
             id=tenant_id,
             tenantId=tenant_id,
-            email=payload.get("sub", "") or "tenant@example.com",
+            email="tenant@example.com",
             businessName=tenant_doc.get("businessName", "Mi Gimnasio") if tenant_doc else "Mi Gimnasio",
             businessPhone=tenant_doc.get("businessPhone") if tenant_doc else None,
             businessAddress=tenant_doc.get("businessAddress") if tenant_doc else None,
@@ -87,27 +91,46 @@ async def get_financial_summary(
     if date_filter:
         query["createdAt"] = date_filter
     
-    sales = await db[Collections.SALES].find(query).to_list(length=10000)
+    pipeline = [
+        {"$match": query},
+        {
+            "$group": {
+                "_id": None,
+                "totalSales": {"$sum": 1},
+                "totalRevenue": {"$sum": "$total"},
+                "cashRevenue": {
+                    "$sum": {"$cond": [{"$eq": ["$paymentMethod", "CASH"]}, "$total", 0]}
+                },
+                "cardRevenue": {
+                    "$sum": {"$cond": [{"$eq": ["$paymentMethod", "CARD"]}, "$total", 0]}
+                },
+                "transferRevenue": {
+                    "$sum": {"$cond": [{"$eq": ["$paymentMethod", "TRANSFER"]}, "$total", 0]}
+                },
+            }
+        },
+    ]
+    cursor = db[Collections.SALES].aggregate(pipeline)
+    result = await cursor.to_list(length=1)
     
-    total_sales = len(sales)
-    total_revenue = sum(s.get("total", 0) for s in sales)
-    
-    cash_sales = [s for s in sales if s.get("paymentMethod") == "CASH"]
-    card_sales = [s for s in sales if s.get("paymentMethod") == "CARD"]
-    transfer_sales = [s for s in sales if s.get("paymentMethod") == "TRANSFER"]
+    if not result:
+        summary = {"totalSales": 0, "totalRevenue": 0, "cashRevenue": 0, "cardRevenue": 0, "transferRevenue": 0}
+    else:
+        r = result[0]
+        summary = {
+            "totalSales": r["totalSales"],
+            "totalRevenue": r["totalRevenue"],
+            "cashRevenue": r["cashRevenue"],
+            "cardRevenue": r["cardRevenue"],
+            "transferRevenue": r["transferRevenue"],
+        }
     
     return {
         "period": {
             "start": start_date,
             "end": end_date
         },
-        "summary": {
-            "totalSales": total_sales,
-            "totalRevenue": total_revenue,
-            "cashRevenue": sum(s.get("total", 0) for s in cash_sales),
-            "cardRevenue": sum(s.get("total", 0) for s in card_sales),
-            "transferRevenue": sum(s.get("total", 0) for s in transfer_sales)
-        }
+        "summary": summary
     }
 
 
@@ -126,31 +149,40 @@ async def get_daily_report(
     else:
         end = datetime(year, month + 1, 1)
     
-    sales = await db[Collections.SALES].find({
-        "tenantId": tenant.tenantId,
-        "createdAt": {"$gte": start, "$lt": end}
-    }).to_list(length=10000)
+    pipeline = [
+        {
+            "$match": {
+                "tenantId": tenant.tenantId,
+                "createdAt": {"$gte": start, "$lt": end}
+            }
+        },
+        {
+            "$group": {
+                "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$createdAt"}},
+                "sales": {"$sum": 1},
+                "revenue": {"$sum": "$total"},
+            }
+        },
+        {"$sort": {"_id": 1}},
+    ]
+    cursor = db[Collections.SALES].aggregate(pipeline)
+    grouped = {}
+    async for row in cursor:
+        grouped[row["_id"]] = {"sales": row["sales"], "revenue": row["revenue"]}
     
-    daily_data = {}
+    # Rellenar días sin ventas con cero
+    daily_data = []
     current = start
     while current < end:
         date_str = current.strftime("%Y-%m-%d")
-        daily_data[date_str] = {"sales": 0, "revenue": 0}
+        entry = grouped.get(date_str, {"sales": 0, "revenue": 0})
+        daily_data.append({"date": date_str, "sales": entry["sales"], "revenue": entry["revenue"]})
         current += timedelta(days=1)
-    
-    for sale in sales:
-        date_str = sale.get("createdAt", datetime.utcnow()).strftime("%Y-%m-%d")
-        if date_str in daily_data:
-            daily_data[date_str]["sales"] += 1
-            daily_data[date_str]["revenue"] += sale.get("total", 0)
     
     return {
         "year": year,
         "month": month,
-        "data": [
-            {"date": date, "sales": data["sales"], "revenue": data["revenue"]}
-            for date, data in daily_data.items()
-        ]
+        "data": daily_data
     }
 
 
@@ -185,26 +217,36 @@ async def get_attendance_summary(
     
     start_date = datetime.utcnow() - timedelta(days=days)
     
-    records = await db[Collections.ATTENDANCE].find({
-        "tenantId": tenant.tenantId,
-        "checkIn": {"$gte": start_date}
-    }).to_list(length=10000)
+    pipeline = [
+        {
+            "$match": {
+                "tenantId": tenant.tenantId,
+                "checkIn": {"$gte": start_date}
+            }
+        },
+        {
+            "$group": {
+                "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$checkIn"}},
+                "count": {"$sum": 1},
+            }
+        },
+        {"$sort": {"_id": 1}},
+    ]
+    cursor = db[Collections.ATTENDANCE].aggregate(pipeline)
+    grouped = {}
+    total = 0
+    async for row in cursor:
+        grouped[row["_id"]] = row["count"]
+        total += row["count"]
     
-    daily_attendance = {}
-    for i in range(days):
+    # Rellenar días sin registros con cero
+    daily_attendance = []
+    for i in range(days - 1, -1, -1):
         date = (datetime.utcnow() - timedelta(days=i)).strftime("%Y-%m-%d")
-        daily_attendance[date] = 0
-    
-    for record in records:
-        date_str = record.get("checkIn", datetime.utcnow()).strftime("%Y-%m-%d")
-        if date_str in daily_attendance:
-            daily_attendance[date_str] += 1
+        daily_attendance.append({"date": date, "count": grouped.get(date, 0)})
     
     return {
         "period": f"Last {days} days",
-        "total": len(records),
-        "daily": [
-            {"date": date, "count": count}
-            for date, count in daily_attendance.items()
-        ]
+        "total": total,
+        "daily": daily_attendance
     }

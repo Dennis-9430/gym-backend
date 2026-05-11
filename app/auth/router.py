@@ -138,6 +138,7 @@ async def verify_password(
         )
     
     username = payload.get("sub")
+    tenant_id = payload.get("tenantId")
     if not username:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -146,10 +147,11 @@ async def verify_password(
     
     db = get_database()
     
-    # Buscar en users (fuente única de credenciales) por username
-    user_doc = await db[Collections.USERS].find_one({
-        "username": username.lower()
-    })
+    # Buscar en users (fuente única de credenciales) por username + tenantId
+    query = {"username": username.lower()}
+    if tenant_id:
+        query["tenantId"] = tenant_id
+    user_doc = await db[Collections.USERS].find_one(query)
     
     if not user_doc:
         raise HTTPException(
@@ -194,11 +196,12 @@ async def register(user_data: UserCreate, current_user: UserResponse = Depends(g
             detail="Only admins can create users"
         )
     
-    existing = await get_user_by_username(user_data.username)
+    # Verificar unicidad de username dentro del mismo tenant
+    existing = await get_user_by_username(user_data.username, tenant_id=current_user.tenantId)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already exists"
+            detail="Username already exists in this tenant"
         )
     
     password_hash = get_password_hash(user_data.password)
@@ -207,13 +210,15 @@ async def register(user_data: UserCreate, current_user: UserResponse = Depends(g
         username=user_data.username,
         password_hash=password_hash,
         role=user_data.role,
-        employee_id=user_data.employeeId
+        employee_id=user_data.employeeId,
+        tenant_id=current_user.tenantId
     )
     
     return UserResponse(
         username=new_user["username"],
         role=UserRole(new_user["role"]),
-        employeeId=new_user.get("employeeId")
+        employeeId=new_user.get("employeeId"),
+        tenantId=new_user.get("tenantId")
     )
 
 
@@ -227,7 +232,7 @@ async def change_password(
     """Change password"""
     from app.database import get_database, Collections
     
-    user_doc = await get_user_by_username(current_user.username)
+    user_doc = await get_user_by_username(current_user.username, tenant_id=current_user.tenantId)
     if not user_doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -243,8 +248,12 @@ async def change_password(
     
     new_hash = get_password_hash(password_data.new_password)
     db = get_database()
+    
+    query = {"username": current_user.username}
+    if current_user.tenantId:
+        query["tenantId"] = current_user.tenantId
     await db[Collections.USERS].update_one(
-        {"username": current_user.username},
+        query,
         {"$set": {"password_hash": new_hash}}
     )
     

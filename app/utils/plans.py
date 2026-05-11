@@ -105,9 +105,6 @@ def require_plan_feature(feature: str):
                 tenant_id = payload.get("tenantId")
 
         if not tenant_id:
-            tenant_id = request.headers.get("X-Tenant-ID")
-
-        if not tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Tenant no identificado"

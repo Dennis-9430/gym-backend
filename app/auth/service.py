@@ -80,15 +80,18 @@ async def create_token(username: str, role: UserRole, tenant_id: str = None, is_
     return Token(access_token=access_token, token_type="bearer")
 
 
-async def get_user_by_username(username: str) -> Optional[dict]:
-    # Busca usuario por nombre de usuario
+async def get_user_by_username(username: str, tenant_id: Optional[str] = None) -> Optional[dict]:
+    # Busca usuario por nombre de usuario, opcionalmente scoped por tenantId
     # Relacionado con: auth/router.py (register, change_password)
-    """Get user by username"""
+    """Get user by username, optionally scoped to tenant"""
     db = get_database()
-    return await db[Collections.USERS].find_one({"username": username.lower()})
+    query = {"username": username.lower()}
+    if tenant_id:
+        query["tenantId"] = tenant_id
+    return await db[Collections.USERS].find_one(query)
 
 
-async def create_user(username: str, password_hash: str, role: UserRole, employee_id: Optional[str] = None) -> dict:
+async def create_user(username: str, password_hash: str, role: UserRole, employee_id: Optional[str] = None, tenant_id: Optional[str] = None) -> dict:
     # Crea nuevo usuario en la base de datos
     # Relacionado con: auth/router.py (register)
     """Create new user"""
@@ -97,8 +100,10 @@ async def create_user(username: str, password_hash: str, role: UserRole, employe
         "username": username.lower(),
         "password_hash": password_hash,
         "role": role.value,
-        "employeeId": employee_id
+        "employeeId": employee_id,
     }
+    if tenant_id:
+        user_doc["tenantId"] = tenant_id
     result = await db[Collections.USERS].insert_one(user_doc)
     user_doc["_id"] = result.inserted_id
     return user_doc

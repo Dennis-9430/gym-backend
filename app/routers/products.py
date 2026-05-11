@@ -50,7 +50,7 @@ async def get_tenant_from_header_products(authorization: str = Header(None)) -> 
         return TenantResponse(
             id=tenant_id,
             tenantId=tenant_id,
-            email=payload.get("sub", "") or "tenant@example.com",
+            email="tenant@example.com",
             businessName=payload.get("businessName") or "Mi Gimnasio",
             businessPhone=payload.get("businessPhone") or "",
             businessAddress=payload.get("businessAddress") or "",

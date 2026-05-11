@@ -247,7 +247,10 @@ async def login_tenant(data: TenantLoginRequest):
                 detail="Usuario sin perfil de empleado"
             )
         
-        employee = await db.employees.find_one({"_id": ObjectId(employee_id)})
+        employee = await db.employees.find_one({
+            "_id": ObjectId(employee_id),
+            "tenantId": user.get("tenantId")
+        })
         if not employee:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -408,7 +411,7 @@ async def reset_password(data: PasswordResetConfirm, db: AsyncIOMotorDatabase = 
         # Actualizar password_hash en users (único lugar)
         new_password_hash = get_password_hash(data.newPassword)
         await db.users.update_one(
-            {"employeeId": employee_id},
+            {"employeeId": employee_id, "tenantId": tenant_id},
             {"$set": {"password_hash": new_password_hash}}
         )
         
@@ -620,7 +623,7 @@ async def update_owner(
     
     if user_update:
         await db[Collections.USERS].update_one(
-            {"employeeId": owner_employee_id},
+            {"employeeId": owner_employee_id, "tenantId": tenant.tenantId},
             {"$set": user_update}
         )
     
@@ -631,7 +634,10 @@ async def update_owner(
             {"$set": final_update}
         )
     
-    updated_owner = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(owner_employee_id)})
+    updated_owner = await db[Collections.EMPLOYEES].find_one({
+        "_id": ObjectId(owner_employee_id),
+        "tenantId": tenant.tenantId
+    })
     
     return EmployeeResponse(**serialize_employee(updated_owner))
 

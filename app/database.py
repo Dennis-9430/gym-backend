@@ -63,8 +63,37 @@ class Collections:
     COUNTERS = "counters"
 
 
+def _infer_index_name(keys):
+    """Genera el nombre de índice por defecto que MongoDB asignaría.
+    Ej: 'tenantId' -> 'tenantId_1', ('tenantId', 'invoiceNumber') -> 'tenantId_1_invoiceNumber_1'
+    """
+    if isinstance(keys, str):
+        return f"{keys}_1"
+    if isinstance(keys, list):
+        return "_".join(f"{k[0]}_{k[1]}" for k in keys)
+    return None
+
+
 async def create_indexes():
-    """Crear índices idempotentes sin degradar unicidad silenciosamente."""
+    """Crear índices idempotentes sin degradar unicidad silenciosamente.
+
+    COMPORTAMIENTO LOCAL (seguro):
+    - Si hay IndexKeySpecsConflict → dropea el índice existente y lo recrea con la config correcta.
+    - Si hay datos duplicados que bloquean un índice único → logea warning, no bloquea startup.
+
+    ╔══════════════════════════════════════════════════════════════════════════╗
+    ║  PENDIENTE PARA PRODUCCIÓN — NO DEPLOYAR SIN MIGRACIÓN CONTROLADA      ║
+    ╠══════════════════════════════════════════════════════════════════════════╣
+    ║  1. Extraer `index_configs` a un script separado (ej. scripts/         ║
+    ║     migrate_indexes.py) que se ejecute UNA SOLA VEZ por deploy.        ║
+    ║  2. Reemplazar `drop_index` + `create_index` por migración con         ║
+    ║     `create_index(..., background=True)` sin drop previo.              ║
+    ║  3. Los conflictos (IndexKeySpecsConflict) se resuelven en staging     ║
+    ║     antes del deploy, no en producción al startup.                     ║
+    ║  4. Usar `createIndexes()` (plural) con `commitQuorum` para            ║
+    ║     réplicas si aplica.                                                ║
+    ╚══════════════════════════════════════════════════════════════════════════╝
+    """
     db = get_database()
 
     index_configs = [
@@ -89,11 +118,35 @@ async def create_indexes():
         try:
             await collection.create_index(keys, unique=unique, background=True)
         except Exception as e:
-            if "duplicate" in str(e).lower() and unique:
+            err_str = str(e).lower()
+            err_code = getattr(e, "code", None)
+
+            # Error 86: IndexKeySpecsConflict — el índice existe con otro nombre/opciones
+            if err_code == 86:
+                index_name = _infer_index_name(keys)
+                try:
+                    await collection.drop_index(index_name)
+                    await collection.create_index(keys, unique=unique, background=True)
+                    logger.info(
+                        "Índice %s en %s reemplazado con la configuración correcta.",
+                        index_name,
+                        collection.name,
+                    )
+                except Exception as drop_err:
+                    logger.warning(
+                        "No se pudo reemplazar índice %s en %s: %s",
+                        index_name,
+                        collection.name,
+                        drop_err,
+                    )
+                continue
+
+            if "duplicate" in err_str and unique:
                 logger.warning(
                     "No se pudo crear índice único %s en %s por datos duplicados. Se mantiene el estado actual.",
                     keys,
                     collection.name,
                 )
                 continue
+
             logger.warning("No se pudo crear índice %s en %s: %s", keys, collection.name, e)

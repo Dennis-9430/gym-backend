@@ -238,7 +238,10 @@ async def send_invoice_email(
     # Aquí iría la lógica de envío de email
     # Por ahora, marcamos como enviado
     await db[Collections.INVOICES].update_one(
-        {"_id": ObjectId(email_request.invoiceId)},
+        {
+            "_id": ObjectId(email_request.invoiceId),
+            "tenantId": tenant.tenantId
+        },
         {"$set": {
             "emailDelivery.sent": True,
             "emailDelivery.sentAt": datetime.utcnow(),

@@ -75,7 +75,7 @@ async def get_tenant_from_header_sales(authorization: str = Header(None)) -> Ten
         return TenantResponse(
             id=tenant_id,
             tenantId=tenant_id,
-            email=payload.get("sub", "") or "tenant@example.com",
+            email="tenant@example.com",
             businessName=tenant_doc.get("businessName", "Mi Gimnasio") if tenant_doc else "Mi Gimnasio",
             businessPhone=tenant_doc.get("businessPhone", "") if tenant_doc else "",
             businessAddress=tenant_doc.get("businessAddress", "") if tenant_doc else "",

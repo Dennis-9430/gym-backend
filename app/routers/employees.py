@@ -296,7 +296,7 @@ async def update_employee(
     # Si se actualizó la contraseña, actualizar SOLO en users
     if password_hash:
         await db[Collections.USERS].update_one(
-            {"employeeId": employee_id},
+            {"employeeId": employee_id, "tenantId": tenant.tenantId},
             {"$set": {"password_hash": password_hash}}
         )
     
@@ -347,7 +347,10 @@ async def delete_employee(
     result = await db[Collections.EMPLOYEES].delete_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
     
     # También eliminar el usuario asociado para que no pueda hacer login
-    await db[Collections.USERS].delete_one({"employeeId": employee_id})
+    await db[Collections.USERS].delete_one({
+        "employeeId": employee_id,
+        "tenantId": tenant.tenantId
+    })
     
     return None
 

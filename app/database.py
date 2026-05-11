@@ -60,6 +60,7 @@ class Collections:
     ATTENDANCE = "attendance"
     SERVICES = "services"
     INVOICES = "invoices"
+    COUNTERS = "counters"
 
 
 async def create_indexes():
@@ -67,14 +68,21 @@ async def create_indexes():
     db = get_database()
     
     index_configs = [
+        # Fuertemente únicos
         (db[Collections.TENANTS], "tenantId", True),
         (db[Collections.TENANTS], "email", True),
         (db[Collections.USERS], "username", True),
+        # Compuestos por tenant
         (db[Collections.EMPLOYEES], [("tenantId", 1), ("username", 1)], True),
         (db[Collections.CLIENTS], [("tenantId", 1), ("documentNumber", 1)], True),
         (db[Collections.PRODUCTS], [("tenantId", 1), ("code", 1)], True),
+        (db[Collections.SERVICES], [("tenantId", 1), ("name", 1)], True),
+        (db[Collections.USERS], [("tenantId", 1), ("employeeId", 1)], False),
+        (db[Collections.INVOICES], [("tenantId", 1), ("createdAt", -1)], False),
         (db[Collections.SALES], [("tenantId", 1), ("createdAt", -1)], False),
         (db[Collections.ATTENDANCE], [("tenantId", 1), ("clientId", 1), ("checkIn", -1)], False),
+        # Colecciones auxiliares
+        (db[Collections.COUNTERS], [("tenantId", 1)], True),
     ]
     
     for collection, keys, unique in index_configs:

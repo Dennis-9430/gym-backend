@@ -133,8 +133,9 @@ app.include_router(demo_router)
 # Rate limiting - 1000 requests por minuto (suficiente para bursts del dashboard SPA)
 app.add_middleware(RateLimitMiddleware, rate_limit=1000)
 
-# Plan protection middleware - DESACTIVADO TEMPORALMENTE
-# app.add_middleware(PlanProtectionMiddleware)
+# Plan protection middleware - protege rutas PREMIUM (/api/employees, /api/reports)
+# SEGURIDAD: No afecta uso local (todos los tenants demo tienen subscription ACTIVE)
+app.add_middleware(PlanProtectionMiddleware)
 
 
 

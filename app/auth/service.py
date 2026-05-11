@@ -10,12 +10,17 @@ from app.database import get_database, Collections
 from app.config import settings
 
 
-async def authenticate_user(username: str, password: str) -> Optional[UserResponse]:
+async def authenticate_user(username: str, password: str, tenant_id: Optional[str] = None) -> Optional[UserResponse]:
     # Valida credenciales del usuario contra la base de datos
     # Relacionado con: auth/router.py (login), auth/utils.py (verify_password)
+    # Nota: tenant_id es opcional para login legacy (sin tenant).
+    # Para multi-tenant real, enviar tenant_id scopea la búsqueda.
     """Authenticate user with username and password"""
     db = get_database()
-    user_doc = await db[Collections.USERS].find_one({"username": username.lower()})
+    query = {"username": username.lower()}
+    if tenant_id:
+        query["tenantId"] = tenant_id
+    user_doc = await db[Collections.USERS].find_one(query)
     
     if not user_doc:
         return None

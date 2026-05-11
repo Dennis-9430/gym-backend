@@ -80,12 +80,15 @@ class TenantResponse(TenantBase):
 
 class TenantLoginRequest(BaseModel):
     # Solicitud de login del tenant
+    # Si tenantId se envía, la búsqueda se scopea a ese tenant (multi-tenant real)
     email: str
     password: str
+    tenantId: Optional[str] = None
 
 
 class PasswordResetRequest(BaseModel):
     email: str
+    tenantId: Optional[str] = None
 
 
 class PasswordResetConfirm(BaseModel):

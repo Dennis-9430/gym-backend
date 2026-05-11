@@ -99,7 +99,8 @@ async def create_indexes():
     index_configs = [
         (db[Collections.TENANTS], "tenantId", True),
         (db[Collections.TENANTS], "email", True),
-        (db[Collections.USERS], "username", True),
+        (db[Collections.USERS], "username", False),  # búsqueda global en login (sin tenantId)
+        (db[Collections.USERS], [("tenantId", 1), ("username", 1)], True),  # único por tenant
         (db[Collections.EMPLOYEES], [("tenantId", 1), ("username", 1)], True),
         (db[Collections.CLIENTS], [("tenantId", 1), ("documentNumber", 1)], True),
         (db[Collections.PRODUCTS], [("tenantId", 1), ("code", 1)], True),

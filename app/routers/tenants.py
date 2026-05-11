@@ -228,8 +228,11 @@ async def login_tenant(data: TenantLoginRequest):
     """Login tenant by username + password — users es la fuente única de credenciales"""
     login_query = data.email.strip().lower()
     
-    # Fuente única: buscar en users por username
-    user = await db.users.find_one({"username": login_query})
+    # Fuente única: buscar en users por username (y tenantId si se envió)
+    user_query = {"username": login_query}
+    if data.tenantId:
+        user_query["tenantId"] = data.tenantId
+    user = await db.users.find_one(user_query)
     
     if user:
         # Verificar contraseña contra users.password_hash
@@ -353,8 +356,11 @@ async def login_tenant(data: TenantLoginRequest):
 @router.post("/forgot-password")
 async def forgot_password(data: PasswordResetRequest, db: AsyncIOMotorDatabase = Depends(get_database)):
     """Solicitar recuperación de contraseña por username/email"""
-    # Buscar en users (fuente única de credenciales) por username
-    user = await db.users.find_one({"username": data.email.strip().lower()})
+    # Buscar en users (fuente única de credenciales) por username + tenantId opcional
+    user_query = {"username": data.email.strip().lower()}
+    if data.tenantId:
+        user_query["tenantId"] = data.tenantId
+    user = await db.users.find_one(user_query)
     if not user:
         # Por seguridad, no revelar si el usuario existe
         return {"message": "Si el correo existe, recibirás un enlace de recuperación"}

@@ -93,6 +93,18 @@ async def list_invoices(
     }
 
 
+@router.get("/next-number")
+async def get_next_invoice_number(
+    tenant: TenantResponse = Depends(get_tenant_from_header)
+):
+    db = get_database()
+    
+    counter = await db.counters.find_one({"tenantId": tenant.tenantId})
+    invoice_count = (counter.get("invoiceCount", 0) + 1) if counter else 1
+    
+    return f"FAC-{datetime.now().year}-{invoice_count:06d}"
+
+
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
 async def get_invoice(
     invoice_id: str,
@@ -122,13 +134,15 @@ async def create_invoice(
 ):
     db = get_database()
     
-    # Obtener siguiente número de factura
+    # Obtener siguiente número de factura (con return_document=AFTER para evitar duplicados)
+    from pymongo import ReturnDocument
     counter = await db.counters.find_one_and_update(
         {"tenantId": tenant.tenantId},
         {"$inc": {"invoiceCount": 1}},
-        upsert=True
+        upsert=True,
+        return_document=ReturnDocument.AFTER
     )
-    invoice_count = counter.get("invoiceCount", 1) if counter else 1
+    invoice_count = counter["invoiceCount"]
     invoice_number = f"FAC-{datetime.now().year}-{invoice_count:06d}"
     
     # Obtener datos del negocio desde tenant
@@ -237,15 +251,3 @@ async def send_invoice_email(
         "success": True,
         "message": f"Factura enviada a {email_request.recipientEmail}"
     }
-
-
-@router.get("/next-number")
-async def get_next_invoice_number(
-    tenant: TenantResponse = Depends(get_tenant_from_header)
-):
-    db = get_database()
-    
-    counter = await db.counters.find_one({"tenantId": tenant.tenantId})
-    invoice_count = (counter.get("invoiceCount", 0) + 1) if counter else 1
-    
-    return f"FAC-{datetime.now().year}-{invoice_count:06d}"

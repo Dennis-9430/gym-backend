@@ -47,10 +47,11 @@ async def lifespan(app: FastAPI):
         await initialize_seed_employees()
         print("[OK] Empleados seed inicializados")
         
-        # Inicializar tenant demo si no existe
-        from app.routers.tenants import initialize_tenant_demo
-        await initialize_tenant_demo()
-        print("[OK] Tenant demo inicializado")
+        # Inicializar tenant demo si no existe (solo si ENABLE_DEMO_SEED=true)
+        if settings.ENABLE_DEMO_SEED:
+            from app.routers.tenants import initialize_tenant_demo
+            await initialize_tenant_demo()
+            print("[OK] Tenant demo inicializado")
         
         # Iniciar scheduler de notificaciones
         from app.scheduler.jobs import start_scheduler

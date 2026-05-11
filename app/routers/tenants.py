@@ -474,11 +474,28 @@ async def update_current_tenant(data: TenantUpdate, current_user: UserResponse =
 
 
 @router.post("/renew", response_model=TenantResponse)
-async def renew_subscription(data: TenantUpdate, tenantId: str):
-    db = get_database()
-    # Renovar suscripción (1 mes por defecto)
+async def renew_subscription(
+    data: TenantUpdate,
+    current_user: UserResponse = Depends(get_current_user)
+):
+    # SEGURIDAD: usar tenantId del token, no de parámetros
+    # SEGURIDAD: solo owners pueden renovar
     """Renew subscription"""
-    tenant = await db.tenants.find_one({"tenantId": tenantId})
+    if not current_user.isOwner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el owner puede renovar la suscripción"
+        )
+    
+    db = get_database()
+    tenant_id = current_user.tenantId
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Usuario sin tenant asociado"
+        )
+    
+    tenant = await db.tenants.find_one({"tenantId": tenant_id})
     if not tenant:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -498,11 +515,11 @@ async def renew_subscription(data: TenantUpdate, tenantId: str):
         update_data["plan"] = data.plan
     
     await db.tenants.update_one(
-        {"tenantId": tenantId},
+        {"tenantId": tenant_id},
         {"$set": update_data}
     )
     
-    tenant = await db.tenants.find_one({"tenantId": tenantId})
+    tenant = await db.tenants.find_one({"tenantId": tenant_id})
     return TenantResponse(**serialize_tenant(tenant))
 
 

@@ -146,26 +146,27 @@ async def verify_password(
     
     db = get_database()
     
-    employee = await db[Collections.EMPLOYEES].find_one({
-        "email": username.lower()
+    # Buscar en users (fuente única de credenciales) por username
+    user_doc = await db[Collections.USERS].find_one({
+        "username": username.lower()
     })
     
-    if not employee:
+    if not user_doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuario no encontrado"
         )
     
     password = password_data.get("password", "")
-    stored_password = employee.get("password", "")
+    stored_hash = user_doc.get("password_hash", "")
     
-    if not stored_password:
+    if not stored_hash:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El usuario no tiene contraseña configurada"
         )
     
-    if not verify_pwd(password, stored_password):
+    if not verify_pwd(password, stored_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Contraseña incorrecta",

@@ -191,26 +191,15 @@ async def create_employee(
     employee_doc["createdAt"] = datetime.utcnow()
     employee_doc["updatedAt"] = datetime.utcnow()
     
-    # Hashear la contraseña si se proporcionó
-    if employee_doc.get("password"):
-        employee_doc["password"] = get_password_hash(employee_doc["password"])
-    else:
-        employee_doc.pop("password", None)
+    # employees NO guarda password — solo perfil
+    employee_doc.pop("password", None)
     
     result = await db[Collections.EMPLOYEES].insert_one(employee_doc)
     employee_doc["_id"] = result.inserted_id
     
-    # CREAR USUARIO PARA LOGIN - Vincular employeeId al usuario
-    # El empleado necesita un registro en 'users' para poder hacer login
-    if employee_doc.get("password") is None and employee_data.password:
-        # Re-hashear para el usuario (el password ya fue hasheado arriba)
+    # CREAR USUARIO PARA LOGIN en users (fuente única de credenciales)
+    if employee_data.password:
         password_hash = get_password_hash(employee_data.password)
-    elif employee_doc.get("password"):
-        password_hash = employee_doc["password"]
-    else:
-        password_hash = None
-    
-    if password_hash:
         employee_id_str = str(result.inserted_id)
         await db[Collections.USERS].insert_one({
             "username": employee_data.username.lower(),
@@ -279,11 +268,11 @@ async def update_employee(
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     update_dict["updatedAt"] = datetime.utcnow()
     
-    # Hashear contraseña si se proporciona
+    # Extraer password para users, NUNCA guardarlo en employees
+    password_hash = None
     if "password" in update_dict and update_dict["password"]:
-        update_dict["password"] = get_password_hash(update_dict["password"])
-    else:
-        update_dict.pop("password", None)
+        password_hash = get_password_hash(update_dict["password"])
+    update_dict.pop("password", None)
     
     # Validar username único si se está cambiando
     if "username" in update_dict and update_dict["username"]:
@@ -304,11 +293,11 @@ async def update_employee(
         {"$set": update_dict}
     )
     
-    # Si se actualizó la contraseña, actualizar también el usuario
-    if "password" in update_dict and update_dict["password"]:
+    # Si se actualizó la contraseña, actualizar SOLO en users
+    if password_hash:
         await db[Collections.USERS].update_one(
             {"employeeId": employee_id},
-            {"$set": {"password_hash": update_dict["password"]}}
+            {"$set": {"password_hash": password_hash}}
         )
     
     # SEGURIDAD: read-back también filtra por tenantId
@@ -411,13 +400,22 @@ async def initialize_seed_employees():
             "username": emp["username"]
         })
         if not existing:
-            # Hashear contraseña antes de guardar
-            if "password" in emp:
-                emp["password"] = get_password_hash(emp["password"])
-                del emp["password"]  # Quitar clave original después de hashear
+            # Guardar password antes de limpiar el doc
+            raw_password = emp.pop("password", None)
             emp["createdAt"] = datetime.utcnow()
             emp["updatedAt"] = datetime.utcnow()
-            await db[Collections.EMPLOYEES].insert_one(emp)
+            result = await db[Collections.EMPLOYEES].insert_one(emp)
+            
+            # Crear user en users para que pueda hacer login
+            if raw_password:
+                await db[Collections.USERS].insert_one({
+                    "username": emp["username"].lower(),
+                    "password_hash": get_password_hash(raw_password),
+                    "role": emp.get("role", "RECEPCIONISTA"),
+                    "employeeId": str(result.inserted_id),
+                    "tenantId": emp["tenantId"],
+                    "createdAt": datetime.utcnow()
+                })
     
     # Demo PRO employees
     pro_employees = [
@@ -443,10 +441,19 @@ async def initialize_seed_employees():
             "username": emp["username"]
         })
         if not existing:
-            # Hashear contraseña antes de guardar
-            if "password" in emp:
-                emp["password"] = get_password_hash(emp["password"])
-                del emp["password"]  # Quitar clave original después de hashear
+            # Guardar password antes de limpiar el doc
+            raw_password = emp.pop("password", None)
             emp["createdAt"] = datetime.utcnow()
             emp["updatedAt"] = datetime.utcnow()
-            await db[Collections.EMPLOYEES].insert_one(emp)
+            result = await db[Collections.EMPLOYEES].insert_one(emp)
+            
+            # Crear user en users para que pueda hacer login
+            if raw_password:
+                await db[Collections.USERS].insert_one({
+                    "username": emp["username"].lower(),
+                    "password_hash": get_password_hash(raw_password),
+                    "role": emp.get("role", "RECEPCIONISTA"),
+                    "employeeId": str(result.inserted_id),
+                    "tenantId": emp["tenantId"],
+                    "createdAt": datetime.utcnow()
+                })

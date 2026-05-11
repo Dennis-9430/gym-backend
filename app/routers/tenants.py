@@ -135,7 +135,7 @@ async def register_tenant(data: TenantCreate):
         tenant_result = await db.tenants.insert_one(tenant_data)
         tenant_data["_id"] = tenant_result.inserted_id
         
-        # Crear el OWNER automáticamente
+        # Crear el OWNER automáticamente (sin password — employees es solo perfil)
         owner_data = {
             "tenantId": tenant_id,
             "username": data.email,  # Username inicial = email
@@ -148,7 +148,6 @@ async def register_tenant(data: TenantCreate):
             "role": "GERENTE",  # El owner siempre es GERENTE
             "status": "ACTIVE",  # Usar status, no isActive
             "isOwner": True,  # Flag de owner
-            "password": get_password_hash(data.password),  # Hashear contraseña
             "createdAt": datetime.utcnow(),
             "updatedAt": datetime.utcnow(),
         }
@@ -226,79 +225,81 @@ async def register_tenant(data: TenantCreate):
 @router.post("/login", response_model=TenantLoginResponse)
 async def login_tenant(data: TenantLoginRequest):
     db = get_database()
-    """Login tenant by email or username + password"""
-    # Buscar employee por email o username (SIN filtro de status)
+    """Login tenant by username + password — users es la fuente única de credenciales"""
     login_query = data.email.strip().lower()
-    employee = await db.employees.find_one({
-        "$or": [
-            {"email": login_query},
-            {"username": login_query}
-        ]
-    })
     
-    # Si no se encuentra employee, buscar en tenants (backward compatibility con demos)
-    if not employee:
-        tenant = await db.tenants.find_one({
-            "$or": [
-                {"email": login_query},
-                {"email": data.email}
-            ]
-        })
-        if tenant and "password" in tenant:
-            # Es un demo/tenant antiguo - verificar contraseña
-            if verify_password(data.password, tenant["password"]):
-                # Crear employee temporal para el demo
-                employee = {
-                    "_id": str(tenant.get("_id")),
-                    "tenantId": tenant.get("tenantId"),
-                    "email": tenant.get("email"),
-                    "firstName": tenant.get("businessName", "Admin"),
-                    "lastName": "",
-                    "role": "ADMIN",
-                    "isOwner": True,
-                    "status": "ACTIVE",  # Usar status, no isActive
-                    "password": tenant.get("password"),  # Para verificar
-                }
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Credenciales incorrectas"
-                )
-        else:
+    # Fuente única: buscar en users por username
+    user = await db.users.find_one({"username": login_query})
+    
+    if user:
+        # Verificar contraseña contra users.password_hash
+        if not verify_password(data.password, user["password_hash"]):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Credenciales incorrectas"
             )
-    else:
-        # Verificar SI la cuenta está INACTIVA antes de verificar contraseña
+        
+        # Obtener perfil del employee (employees es solo perfil, sin password)
+        employee_id = user.get("employeeId")
+        if not employee_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Usuario sin perfil de empleado"
+            )
+        
+        employee = await db.employees.find_one({"_id": ObjectId(employee_id)})
+        if not employee:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Perfil de empleado no encontrado"
+            )
+        
+        # Verificar si la cuenta está INACTIVA
         if employee.get("status") == "INACTIVE":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Tu cuenta está INACTIVA. Contacta al administrador."
             )
         
-        # Verificar contraseña del employee
-        # Buscar password en ambos campos (password o password_hash)
-        stored_password = employee.get("password") or employee.get("password_hash")
-        if not stored_password:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error interno: Employee sin contraseña"
-            )
-        
-        if not verify_password(data.password, stored_password):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Credenciales incorrectas"
-            )
-        
-        # Buscar tenant del employee
+        # Buscar tenant
         tenant = await db.tenants.find_one({"tenantId": employee["tenantId"]})
         if not tenant:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Tenant no encontrado"
             )
+    else:
+        # Backward compatibility con demos antiguos (tenants con password)
+        tenant = await db.tenants.find_one({
+            "$or": [
+                {"email": login_query},
+                {"email": data.email}
+            ]
+        })
+        if not tenant or "password" not in tenant:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Credenciales incorrectas"
+            )
+        
+        if not verify_password(data.password, tenant["password"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Credenciales incorrectas"
+            )
+        
+        # Crear employee temporal para la respuesta del demo
+        employee = {
+            "_id": str(tenant.get("_id")),
+            "tenantId": tenant.get("tenantId"),
+            "email": tenant.get("email"),
+            "firstName": tenant.get("businessName", "Admin"),
+            "lastName": "",
+            "role": "ADMIN",
+            "isOwner": True,
+            "status": "ACTIVE",
+            "username": tenant.get("email", ""),
+        }
     
     # Verificar subscription activa
     if tenant.get("subscriptionStatus") != "ACTIVE":
@@ -317,15 +318,14 @@ async def login_tenant(data: TenantLoginRequest):
             Collections.ATTENDANCE,
         ]
         for collection_name in collections_to_clean:
-            # Solo borra datos NO semilla (isSeed != true)
             await db[collection_name].delete_many({
                 "tenantId": tenant["tenantId"],
                 "isSeed": {"$ne": True},
             })
     
-    # Crear token JWT con datos del employee
+    # Crear token JWT — sub es el username del user (o email del tenant legacy)
     token_data = {
-        "sub": employee["email"],
+        "sub": user["username"] if user else employee.get("email", ""),
         "role": employee["role"],
         "tenantId": tenant["tenantId"],
         "plan": tenant["plan"],
@@ -349,45 +349,35 @@ async def login_tenant(data: TenantLoginRequest):
 # Recuperación de contraseña
 @router.post("/forgot-password")
 async def forgot_password(data: PasswordResetRequest, db: AsyncIOMotorDatabase = Depends(get_database)):
-    """Solicitar recuperación de contraseña por email"""
-    # Buscar employee por email
-    employee = await db.employees.find_one({"email": data.email})
-    if not employee:
-        # Por seguridad, no revelar si el email existe
+    """Solicitar recuperación de contraseña por username/email"""
+    # Buscar en users (fuente única de credenciales) por username
+    user = await db.users.find_one({"username": data.email.strip().lower()})
+    if not user:
+        # Por seguridad, no revelar si el usuario existe
         return {"message": "Si el correo existe, recibirás un enlace de recuperación"}
-    
-    # Buscar tenant para verificar estado
-    tenant = await db.tenants.find_one({"tenantId": employee["tenantId"]})
-    if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuario no encontrado"
-        )
     
     # Generar token temporal (15 minutos)
     reset_token = create_access_token({
-        "sub": employee["email"],
+        "sub": user["username"],
         "type": "password_reset",
-        "tenantId": tenant["tenantId"],
-        "employeeId": str(employee["_id"]),
+        "tenantId": user.get("tenantId"),
+        "employeeId": user.get("employeeId"),
     }, expires_delta=timedelta(minutes=15))
     
     # Aquí enviarías el email con el token
-    # Por ahora, devolvemos el token (en producción usar SMTP)
-    # NOTA: En producción, enviar por email real
+    # NOTA: En producción, enviar por email real — no devolver el token
     
     return {
         "message": "Si el correo existe, recibirás un enlace de recuperación",
-        "token": reset_token  # TODO: Enviar por email en producción
     }
 
 
 @router.post("/reset-password")
 async def reset_password(data: PasswordResetConfirm, db: AsyncIOMotorDatabase = Depends(get_database)):
-    """Cambiar contraseña con token de recuperación"""
+    """Cambiar contraseña con token de recuperación — usando users.password_hash"""
     try:
-        # Decodificar token
-        payload = jwt.decode(data.token, settings.SECRET_KEY, algorithms=["HS256"])
+        # Decodificar token con JWT_SECRET_KEY
+        payload = jwt.decode(data.token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         if payload.get("type") != "password_reset":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -397,30 +387,29 @@ async def reset_password(data: PasswordResetConfirm, db: AsyncIOMotorDatabase = 
         employee_id = payload.get("employeeId")
         tenant_id = payload.get("tenantId")
         
-        # Buscar employee
-        employee = await db.employees.find_one({
-            "_id": ObjectId(employee_id),
+        # Buscar usuario en users por employeeId
+        user = await db.users.find_one({
+            "employeeId": employee_id,
             "tenantId": tenant_id
         })
-        if not employee:
+        if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Usuario no encontrado"
             )
         
-        # Validar que no sea owner (no puede cambiar password así)
-        # El owner debe cambiar desde su perfil
-        if employee.get("isOwner", False):
+        # Validar que no sea owner (debe cambiar desde su perfil)
+        if user.get("isOwner", False):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Los owners deben cambiar contraseña desde su perfil"
             )
         
-        # Actualizar contraseña
+        # Actualizar password_hash en users (único lugar)
         new_password_hash = get_password_hash(data.newPassword)
-        await db.employees.update_one(
-            {"_id": ObjectId(employee_id)},
-            {"$set": {"password": new_password_hash, "updatedAt": datetime.utcnow()}}
+        await db.users.update_one(
+            {"employeeId": employee_id},
+            {"$set": {"password_hash": new_password_hash}}
         )
         
         return {"message": "Contraseña actualizada correctamente"}
@@ -595,25 +584,22 @@ async def update_owner(
         if field in update_dict:
             del update_dict[field]
     
-    # Campos permitidos para el owner
-    allowed_fields = ["firstName", "lastName", "phone", "address", "documentNumber", "documentType", "notes", "username", "password"]
+    # Campos permitidos para el owner (password NO va en employees)
+    allowed_fields = ["firstName", "lastName", "phone", "address", "documentNumber", "documentType", "notes", "username"]
     final_update = {k: v for k, v in update_dict.items() if k in allowed_fields and v is not None}
     
-    if not final_update:
+    # También actualizar el usuario en la colección users (fuente única de credenciales)
+    user_update = {}
+    if "username" in update_dict:
+        user_update["username"] = update_dict["username"].lower()
+    if "password" in update_dict and update_dict["password"]:
+        user_update["password_hash"] = get_password_hash(update_dict["password"])
+    
+    if not final_update and not user_update:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No se proporcionaron campos válidos para actualizar"
         )
-    
-    if "password" in final_update:
-        final_update["password"] = get_password_hash(final_update["password"])
-    
-    # También actualizar el usuario en la colección users
-    user_update = {}
-    if "username" in final_update:
-        user_update["username"] = final_update["username"].lower()
-    if "password" in final_update:
-        user_update["password_hash"] = final_update["password"]
     
     if user_update:
         await db[Collections.USERS].update_one(
@@ -621,12 +607,12 @@ async def update_owner(
             {"$set": user_update}
         )
     
-    final_update["updatedAt"] = datetime.utcnow()
-    
-    await db[Collections.EMPLOYEES].update_one(
-        {"_id": ObjectId(owner_employee_id), "tenantId": tenant.tenantId},
-        {"$set": final_update}
-    )
+    if final_update:
+        final_update["updatedAt"] = datetime.utcnow()
+        await db[Collections.EMPLOYEES].update_one(
+            {"_id": ObjectId(owner_employee_id), "tenantId": tenant.tenantId},
+            {"$set": final_update}
+        )
     
     updated_owner = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(owner_employee_id)})
     

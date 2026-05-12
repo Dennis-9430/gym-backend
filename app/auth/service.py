@@ -10,6 +10,34 @@ from app.database import get_database, Collections
 from app.config import settings
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# DECISIÓN DE LOGIN MULTI-TENANT
+# ──────────────────────────────────────────────────────────────────────────────
+# El sistema soporta dos modos de login:
+#
+# 1. GLOBAL (backward compatible): username + password sin tenantId.
+#    → Busca usuario por username en toda la colección (índice no único).
+#    → Requiere usernames únicos globalmente.
+#    → Útil para migración o cuando hay un solo tenant.
+#
+# 2. MULTI-TENANT (recomendado para SaaS): businessCode + username + password.
+#    → businessCode (slug) identifica el gimnasio/tenant.
+#    → Se resuelve a tenantId, y la búsqueda de usuario se scopea.
+#    → Permite mismo username en diferentes tenants.
+#    → El frontend envía businessCode desde el campo "Código del Negocio"
+#      o tenantId UUID desde localStorage.
+#
+# FLUJO ACTUAL:
+# - Login global (sin tenantId) → funciona, pero limita el SaaS.
+# - Login con businessCode/tenantId → multi-tenant real, recomendado.
+# - Después del registro, businessCode se pasa automáticamente al login.
+# - Login demo pre-filla demo-basic / demo-premium bloqueado.
+#
+# PENDIENTE PARA PRODUCCIÓN:
+# - Cuando se despliegue con subdominios (tenant.app.com), el tenantId
+#   se podrá extraer del subdominio sin input del usuario.
+# ──────────────────────────────────────────────────────────────────────────────
+
 async def authenticate_user(username: str, password: str, tenant_id: Optional[str] = None) -> Optional[UserResponse]:
     # Valida credenciales del usuario contra la base de datos
     # Relacionado con: auth/router.py (login), auth/utils.py (verify_password)

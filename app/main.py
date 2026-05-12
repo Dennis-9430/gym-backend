@@ -32,31 +32,40 @@ async def lifespan(app: FastAPI):
         await connect_to_mongodb()
         print("[OK] MongoDB conectado")
         
-        # Crear índices de base de datos
+        # Crear índices de base de datos (siempre necesario)
         from app.database import create_indexes
         await create_indexes()
         print("[OK] Indices creados")
         
-        # Inicializar usuarios por defecto
-        from app.auth.service import initialize_default_users
-        await initialize_default_users()
-        print("[OK] Usuarios default inicializados")
+        # Inicializar usuarios por defecto (admin/receptor) — gated por flag
+        if settings.ENABLE_DEFAULT_USERS:
+            from app.auth.service import initialize_default_users
+            await initialize_default_users()
+            print("[OK] Usuarios default inicializados")
+        else:
+            print("[INFO] Usuarios default desactivados (ENABLE_DEFAULT_USERS=false)")
         
-        # Inicializar empleados seed si no existen
-        from app.routers.employees import initialize_seed_employees
-        await initialize_seed_employees()
-        print("[OK] Empleados seed inicializados")
+        # Inicializar empleados seed (demo data) — gated por ENABLE_DEMO_SEED
+        if settings.ENABLE_DEMO_SEED:
+            from app.routers.employees import initialize_seed_employees
+            await initialize_seed_employees()
+            print("[OK] Empleados seed inicializados")
+        else:
+            print("[INFO] Empleados seed desactivados (ENABLE_DEMO_SEED=false)")
         
-        # Inicializar tenant demo si no existe (solo si ENABLE_DEMO_SEED=true)
+        # Inicializar tenant demo si no existe — gated por ENABLE_DEMO_SEED
         if settings.ENABLE_DEMO_SEED:
             from app.routers.tenants import initialize_tenant_demo
             await initialize_tenant_demo()
             print("[OK] Tenant demo inicializado")
         
-        # Iniciar scheduler de notificaciones
-        from app.scheduler.jobs import start_scheduler
-        start_scheduler()
-        print("[OK] Scheduler iniciado")
+        # Iniciar scheduler de notificaciones — gated por flag
+        if settings.ENABLE_SCHEDULER:
+            from app.scheduler.jobs import start_scheduler
+            start_scheduler()
+            print("[OK] Scheduler iniciado")
+        else:
+            print("[INFO] Scheduler desactivado (ENABLE_SCHEDULER=false)")
         
     except Exception as e:
         import traceback

@@ -51,6 +51,62 @@ class Settings(BaseSettings):
     # Demo - Habilitar datos de ejemplo
     ENABLE_DEMO_SEED: bool = False
     
+    # Bootstrap - Control de inicialización en startup
+    # En producción, desactivar todos los que no sean estrictamente necesarios
+    ENABLE_DEFAULT_USERS: bool = True   # Crea admin/receptor si no existen
+    ENABLE_SCHEDULER: bool = True       # Inicia scheduler de notificaciones
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PENDIENTES PARA PRODUCCIÓN REAL
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Estos puntos están identificados pero NO resueltos — requieren decisión
+# de infraestructura o servicios externos antes del deploy.
+#
+# 1. MIGRACIONES DE ÍNDICES
+#    - Extraer create_indexes() de database.py a script independiente.
+#    - No dropear/recrear índices en producción al startup.
+#    - Probar migración en staging antes de deploy.
+#    - Ver app/database.py → create_indexes() docstring.
+#
+# 2. CORS DEFINITIVO
+#    - Definir ALLOWED_ORIGINS con dominios reales.
+#    - Ej: ALLOWED_ORIGINS=https://app.migimnasio.com,https://migimnasio.com
+#
+# 3. URLS PÚBLICAS
+#    - Frontend: VITE_API_URL apuntando al backend real.
+#    - Backend: dominio público con HTTPS.
+#
+# 4. MONGODB ATLAS
+#    - Cambiar MONGODB_URL a mongodb+srv://...
+#    - Usuarios DB con permisos mínimos.
+#    - IP allowlist.
+#    - Backups automáticos.
+#    - TLS obligatorio.
+#    - Variables secretas fuera del repo (.env).
+#
+# 5. EMAIL REAL (facturas, reset password)
+#    - Proveedor: SendGrid, Resend, Mailgun o Amazon SES.
+#    - No exponer tokens de reset al frontend.
+#    - El envío de facturas por email está simulado.
+#
+# 6. PAGOS Y SUSCRIPCIONES REALES
+#    - Proveedor de pagos (Stripe, etc.).
+#    - Webhook backend para cambios de estado.
+#    - Renovación automática/manual.
+#    - Bloqueo por plan.
+#
+# 7. LOGIN CON SUBDOMINIOS
+#    - Cuando el sistema se despliegue con subdominios por tenant,
+#      el tenantId se puede extraer del subdominio en lugar del input manual.
+#
+# 8. JWT SECRET
+#    - JWT_SECRET_KEY debe ser una variable de entorno con valor seguro.
+#    - El default 'dev-only-jwt-secret-change-in-production' solo para dev.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
     class Config:
         env_file = ".env"
         case_sensitive = True

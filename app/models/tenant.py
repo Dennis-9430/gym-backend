@@ -21,10 +21,22 @@ class SubscriptionStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+def slugify(text: str) -> str:
+    """Convierte un texto en un slug URL-friendly.
+    Ej: 'Mi Gimnasio' → 'mi-gimnasio', 'El Gym de Juan!' → 'el-gym-de-juan'
+    """
+    import re
+    text = text.lower().strip()
+    text = re.sub(r'[^\w\s-]', '', text)  # sacar caracteres especiales
+    text = re.sub(r'[-\s]+', '-', text)    # espacios/guiones múltiples → un guión
+    return text.strip('-')
+
+
 class TenantBase(BaseModel):
     # Datos base del tenant (requeridos al registro)
     email: EmailStr  # Email con validación automática
     businessName: str = Field(..., min_length=2, max_length=100)
+    businessCode: Optional[str] = None  # Slug generado del nombre, para login multi-tenant
     businessPhone: Optional[str] = None
     businessAddress: Optional[str] = None
     businessRuc: Optional[str] = None
@@ -80,15 +92,17 @@ class TenantResponse(TenantBase):
 
 class TenantLoginRequest(BaseModel):
     # Solicitud de login del tenant
-    # Si tenantId se envía, la búsqueda se scopea a ese tenant (multi-tenant real)
+    # Enviar businessCode o tenantId scopea la búsqueda (multi-tenant real)
     email: str
     password: str
     tenantId: Optional[str] = None
+    businessCode: Optional[str] = None  # Slug amigable del nombre del negocio
 
 
 class PasswordResetRequest(BaseModel):
     email: str
     tenantId: Optional[str] = None
+    businessCode: Optional[str] = None
 
 
 class PasswordResetConfirm(BaseModel):

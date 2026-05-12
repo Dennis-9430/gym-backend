@@ -20,6 +20,7 @@ from app.models.tenant import (
     PasswordResetConfirm,
     SubscriptionPlan,
     SubscriptionStatus,
+    slugify,
 )
 from app.models.employee import EmployeeResponse, EmployeeUpdate
 from app.auth.utils import verify_password, get_password_hash, create_access_token
@@ -107,12 +108,23 @@ async def register_tenant(data: TenantCreate):
                 detail="El correo electrónico ya está registrado"
             )
         
+        # Generar o validar businessCode (slug único a partir del nombre)
+        business_code = data.businessCode or slugify(data.businessName)
+        code_exists = await db.tenants.find_one({"businessCode": business_code})
+        if code_exists:
+            # Si el slug ya existe, agregar sufijo numérico
+            suffix = 1
+            while await db.tenants.find_one({"businessCode": f"{business_code}-{suffix}"}):
+                suffix += 1
+            business_code = f"{business_code}-{suffix}"
+        
         # Generar tenantId único
         tenant_id = str(uuid4())
         
         # Datos del tenant
         tenant_data = {
             "tenantId": tenant_id,
+            "businessCode": business_code,
             "email": data.email,
             "businessName": data.businessName,
             "businessPhone": data.businessPhone,
@@ -228,10 +240,17 @@ async def login_tenant(data: TenantLoginRequest):
     """Login tenant by username + password — users es la fuente única de credenciales"""
     login_query = data.email.strip().lower()
     
-    # Fuente única: buscar en users por username (y tenantId si se envió)
+    # Resolver tenantId desde businessCode (slug) si se envió
+    resolved_tenant_id = data.tenantId
+    if data.businessCode and not resolved_tenant_id:
+        tenant_by_code = await db.tenants.find_one({"businessCode": data.businessCode.strip().lower()})
+        if tenant_by_code:
+            resolved_tenant_id = tenant_by_code["tenantId"]
+    
+    # Fuente única: buscar en users por username (y tenantId si se resolvió)
     user_query = {"username": login_query}
-    if data.tenantId:
-        user_query["tenantId"] = data.tenantId
+    if resolved_tenant_id:
+        user_query["tenantId"] = resolved_tenant_id
     user = await db.users.find_one(user_query)
     
     if user:
@@ -356,10 +375,17 @@ async def login_tenant(data: TenantLoginRequest):
 @router.post("/forgot-password")
 async def forgot_password(data: PasswordResetRequest, db: AsyncIOMotorDatabase = Depends(get_database)):
     """Solicitar recuperación de contraseña por username/email"""
+    # Resolver tenantId desde businessCode si se envió
+    resolved_tenant_id = data.tenantId
+    if data.businessCode and not resolved_tenant_id:
+        tenant_by_code = await db.tenants.find_one({"businessCode": data.businessCode.strip().lower()})
+        if tenant_by_code:
+            resolved_tenant_id = tenant_by_code["tenantId"]
+    
     # Buscar en users (fuente única de credenciales) por username + tenantId opcional
     user_query = {"username": data.email.strip().lower()}
-    if data.tenantId:
-        user_query["tenantId"] = data.tenantId
+    if resolved_tenant_id:
+        user_query["tenantId"] = resolved_tenant_id
     user = await db.users.find_one(user_query)
     if not user:
         # Por seguridad, no revelar si el usuario existe
@@ -727,6 +753,7 @@ async def initialize_tenant_demo():
     if not existing_basic:
         demo_basic = {
             "tenantId": "demo-basic-001",
+            "businessCode": "demo-basic",
             "email": "demo-basic@gmail.com",
             "password": get_password_hash("demoBasic123"),
             "businessName": "Gimnasio Demo Basic",
@@ -750,12 +777,18 @@ async def initialize_tenant_demo():
         
         # Crear servicios default para demo-basic
         await create_default_services("demo-basic-001")
-    elif not existing_basic.get("isDemo"):
-        # Migrar tenants demo existentes que no tienen isDemo
-        await db.tenants.update_one(
-            {"tenantId": "demo-basic-001"},
-            {"$set": {"isDemo": True}}
-        )
+    else:
+        # Migrar tenants demo existentes: agregar isDemo y businessCode si faltan
+        ops = {}
+        if not existing_basic.get("isDemo"):
+            ops["isDemo"] = True
+        if not existing_basic.get("businessCode"):
+            ops["businessCode"] = "demo-basic"
+        if ops:
+            await db.tenants.update_one(
+                {"tenantId": "demo-basic-001"},
+                {"$set": ops}
+            )
     
     # Crear/actualizar servicios default (idempotente: solo crea si no existe)
     await create_default_services("demo-basic-001")
@@ -768,6 +801,7 @@ async def initialize_tenant_demo():
     if not existing_pro:
         demo_pro = {
             "tenantId": "demo-pro-001",
+            "businessCode": "demo-premium",
             "email": "demo-pro@gmail.com",
             "password": get_password_hash("demoPro123"),
             "businessName": "Gimnasio Demo Pro",
@@ -791,12 +825,18 @@ async def initialize_tenant_demo():
         
         # Crear servicios default para demo-pro
         await create_default_services("demo-pro-001")
-    elif not existing_pro.get("isDemo"):
-        # Migrar tenants demo existentes que no tienen isDemo
-        await db.tenants.update_one(
-            {"tenantId": "demo-pro-001"},
-            {"$set": {"isDemo": True}}
-        )
+    else:
+        # Migrar tenants demo existentes: agregar isDemo y businessCode si faltan
+        ops = {}
+        if not existing_pro.get("isDemo"):
+            ops["isDemo"] = True
+        if not existing_pro.get("businessCode"):
+            ops["businessCode"] = "demo-premium"
+        if ops:
+            await db.tenants.update_one(
+                {"tenantId": "demo-pro-001"},
+                {"$set": ops}
+            )
     
     # Crear/actualizar servicios default (idempotente: solo crea si no existe)
     await create_default_services("demo-pro-001")

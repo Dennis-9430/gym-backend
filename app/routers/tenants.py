@@ -294,14 +294,14 @@ async def login_tenant(data: TenantLoginRequest):
                 detail="Tenant no encontrado"
             )
     else:
-        # Backward compatibility con demos antiguos (tenants con password)
+        # Backward compatibility SOLO para demos (tenants con password)
         tenant = await db.tenants.find_one({
             "$or": [
                 {"email": login_query},
                 {"email": data.email}
             ]
         })
-        if not tenant or "password" not in tenant:
+        if not tenant or "password" not in tenant or not tenant.get("isDemo"):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Credenciales incorrectas"
@@ -331,6 +331,15 @@ async def login_tenant(data: TenantLoginRequest):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Suscripción inactiva. Contacte al administrador."
+        )
+    
+    # SEGURIDAD: si no se proporcionó businessCode ni tenantId para scope,
+    # solo permitir para cuentas demo (backward compatibility).
+    # Para cuentas reales, el businessCode es obligatorio.
+    if not data.businessCode and not data.tenantId and not tenant.get("isDemo"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales incorrectas"
         )
     
     # Auto-cleanup para cuentas demo: borra datos creados en sesiones anteriores
@@ -374,7 +383,12 @@ async def login_tenant(data: TenantLoginRequest):
 # Recuperación de contraseña
 @router.post("/forgot-password")
 async def forgot_password(data: PasswordResetRequest, db: AsyncIOMotorDatabase = Depends(get_database)):
-    """Solicitar recuperación de contraseña por username/email"""
+    """Solicitar recuperación de contraseña por email — requiere businessCode o tenantId"""
+    # SEGURIDAD: exigir businessCode o tenantId para evitar ambigüedad entre tenants
+    if not data.businessCode and not data.tenantId:
+        # No revelar si el usuario existe ni si el scope es válido
+        return {"message": "Si el correo existe, recibirás un enlace de recuperación"}
+    
     # Resolver tenantId desde businessCode si se envió
     resolved_tenant_id = data.tenantId
     if data.businessCode and not resolved_tenant_id:
@@ -382,10 +396,12 @@ async def forgot_password(data: PasswordResetRequest, db: AsyncIOMotorDatabase =
         if tenant_by_code:
             resolved_tenant_id = tenant_by_code["tenantId"]
     
-    # Buscar en users (fuente única de credenciales) por username + tenantId opcional
-    user_query = {"username": data.email.strip().lower()}
-    if resolved_tenant_id:
-        user_query["tenantId"] = resolved_tenant_id
+    if not resolved_tenant_id:
+        # No se pudo resolver tenant — responder genérico sin revelar info
+        return {"message": "Si el correo existe, recibirás un enlace de recuperación"}
+    
+    # Buscar en users (fuente única de credenciales) por username + tenantId
+    user_query = {"username": data.email.strip().lower(), "tenantId": resolved_tenant_id}
     user = await db.users.find_one(user_query)
     if not user:
         # Por seguridad, no revelar si el usuario existe

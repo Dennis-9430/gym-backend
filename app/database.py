@@ -77,6 +77,13 @@ def _infer_index_name(keys):
 async def create_indexes():
     """Crear índices idempotentes sin degradar unicidad silenciosamente.
 
+    ╔══════════════════════════════════════════════════════════════════════════╗
+    ║  USO EXCLUSIVO PARA MIGRACIÓN MANUAL                                    ║
+    ╠══════════════════════════════════════════════════════════════════════════╣
+    ║  Esta función ya NO se ejecuta en startup.                             ║
+    ║  Usar: python scripts/migrate_indexes.py                                ║
+    ╚══════════════════════════════════════════════════════════════════════════╝
+
     COMPORTAMIENTO LOCAL (seguro):
     - Si hay IndexKeySpecsConflict → dropea el índice existente y lo recrea con la config correcta.
     - Si hay datos duplicados que bloquean un índice único → logea warning, no bloquea startup.
@@ -84,13 +91,9 @@ async def create_indexes():
     ╔══════════════════════════════════════════════════════════════════════════╗
     ║  PENDIENTE PARA PRODUCCIÓN — NO DEPLOYAR SIN MIGRACIÓN CONTROLADA      ║
     ╠══════════════════════════════════════════════════════════════════════════╣
-    ║  1. Extraer `index_configs` a un script separado (ej. scripts/         ║
-    ║     migrate_indexes.py) que se ejecute UNA SOLA VEZ por deploy.        ║
-    ║  2. Reemplazar `drop_index` + `create_index` por migración con         ║
-    ║     `create_index(..., background=True)` sin drop previo.              ║
-    ║  3. Los conflictos (IndexKeySpecsConflict) se resuelven en staging     ║
+    ║  1. Los conflictos (IndexKeySpecsConflict) se resuelven en staging     ║
     ║     antes del deploy, no en producción al startup.                     ║
-    ║  4. Usar `createIndexes()` (plural) con `commitQuorum` para            ║
+    ║  2. Usar `createIndexes()` (plural) con `commitQuorum` para            ║
     ║     réplicas si aplica.                                                ║
     ╚══════════════════════════════════════════════════════════════════════════╝
     """

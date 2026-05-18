@@ -54,56 +54,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
 
 @router.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    # Valida credenciales y retorna token JWT
-    # Relacionado con: auth/service.py (authenticate_user, create_token)
-    """Login endpoint"""
-    user = await authenticate_user(form_data.username, form_data.password)
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Verificar si la cuenta está inactiva
-    if getattr(user, 'isInactive', False):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tu cuenta está INACTIVA. Contacta al administrador.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Auto-cleanup para cuentas demo: borra datos previos al login
-    if user.tenantId:
-        from app.database import get_database, Collections
-        db = get_database()
-        tenant = await db[Collections.TENANTS].find_one({"tenantId": user.tenantId})
-        if tenant and tenant.get("isDemo", False):
-            collections_to_clean = [
-                Collections.SALES,
-                Collections.CLIENTS,
-                Collections.INVOICES,
-                Collections.PRODUCTS,
-                Collections.ATTENDANCE,
-            ]
-            for collection_name in collections_to_clean:
-                # Solo borra datos NO semilla (isSeed != true)
-                await db[collection_name].delete_many({
-                    "tenantId": user.tenantId,
-                    "isSeed": {"$ne": True},
-                })
-    
-    # Incluir toda la información del usuario en el token
-    token = await create_token(
-        username=user.username,
-        role=user.role,
-        tenant_id=user.tenantId,
-        is_owner=user.isOwner,
-        plan=user.plan,
-        employee_id=user.employeeId
+    # ENDPOINT DESHABILITADO — Usar /api/tenants/login que soporta multi-tenant real.
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Este endpoint fue deshabilitado. Usá /api/tenants/login con tu Código del Negocio."
     )
-    return token
 
 
 @router.post("/logout")

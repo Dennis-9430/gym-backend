@@ -4,7 +4,8 @@ Script de migración de índices — ejecutar UNA SOLA VEZ por deploy.
 
 Uso:
     cd backend
-    python scripts/migrate_indexes.py
+    python scripts/migrate_indexes.py              # ejecutar migración
+    python scripts/migrate_indexes.py --dry-run     # solo listar lo que haría, sin modificar
 
 Este script reemplaza la creación automática de índices en startup.
 NO debe ejecutarse desde lifespan() — solo manualmente en cada deploy.
@@ -12,6 +13,7 @@ NO debe ejecutarse desde lifespan() — solo manualmente en cada deploy.
 Relacionado con: app/database.py (create_indexes)
 """
 import asyncio
+import argparse
 import logging
 import sys
 import os
@@ -51,7 +53,7 @@ class Collections:
     COUNTERS = "counters"
 
 
-async def migrate():
+async def migrate(dry_run: bool = False):
     """Ejecuta la migración de índices."""
     logger.info("Conectando a MongoDB: %s", settings.MONGODB_URL)
     client = AsyncIOMotorClient(settings.MONGODB_URL)
@@ -80,6 +82,19 @@ async def migrate():
         (db["notification_configs"], [("tenantId", 1), ("type", 1)], True),
         (db["notification_logs"], [("tenantId", 1), ("clientId", 1), ("sentAt", -1)], False),
     ]
+
+    if dry_run:
+        logger.info("")
+        logger.info("=== MODO DRY-RUN — no se modifica nada ===")
+        for collection, keys, unique in index_configs:
+            index_name = _infer_index_name(keys)
+            existing = await collection.index_information()
+            status = "✅ ya existe" if index_name in existing else "❌ FALTANTE"
+            logger.info("  %s %s.%s (unique=%s)", status, collection.name, keys, unique)
+        client.close()
+        logger.info("")
+        logger.info("Dry-run completado. Ejecutá sin --dry-run para aplicar.")
+        return
 
     success_count = 0
     error_count = 0
@@ -128,4 +143,7 @@ async def migrate():
 
 
 if __name__ == "__main__":
-    asyncio.run(migrate())
+    parser = argparse.ArgumentParser(description="Migración de índices MongoDB")
+    parser.add_argument("--dry-run", action="store_true", help="Solo listar índices faltantes sin crear nada")
+    args = parser.parse_args()
+    asyncio.run(migrate(dry_run=args.dry_run))

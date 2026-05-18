@@ -247,54 +247,80 @@ async def login_tenant(data: TenantLoginRequest):
         if tenant_by_code:
             resolved_tenant_id = tenant_by_code["tenantId"]
     
-    # Fuente única: buscar en users por username (y tenantId si se resolvió)
-    user_query = {"username": login_query}
     if resolved_tenant_id:
-        user_query["tenantId"] = resolved_tenant_id
-    user = await db.users.find_one(user_query)
-    
-    if user:
-        # Verificar contraseña contra users.password_hash
-        if not verify_password(data.password, user["password_hash"]):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Credenciales incorrectas"
-            )
+        # ===== LOGIN SCOPEADO (con businessCode o tenantId) =====
+        # Buscar SOLO dentro del tenant resuelto — nunca global
+        user = await db.users.find_one({"username": login_query, "tenantId": resolved_tenant_id})
         
-        # Obtener perfil del employee (employees es solo perfil, sin password)
-        employee_id = user.get("employeeId")
-        if not employee_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Usuario sin perfil de empleado"
-            )
-        
-        employee = await db.employees.find_one({
-            "_id": ObjectId(employee_id),
-            "tenantId": user.get("tenantId")
-        })
-        if not employee:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Perfil de empleado no encontrado"
-            )
-        
-        # Verificar si la cuenta está INACTIVA
-        if employee.get("status") == "INACTIVE":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Tu cuenta está INACTIVA. Contacta al administrador."
-            )
-        
-        # Buscar tenant
-        tenant = await db.tenants.find_one({"tenantId": employee["tenantId"]})
-        if not tenant:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Tenant no encontrado"
-            )
+        if user:
+            # Verificar contraseña contra users.password_hash
+            if not verify_password(data.password, user["password_hash"]):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Credenciales incorrectas"
+                )
+            
+            # Obtener perfil del employee (employees es solo perfil, sin password)
+            employee_id = user.get("employeeId")
+            if not employee_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Usuario sin perfil de empleado"
+                )
+            
+            employee = await db.employees.find_one({
+                "_id": ObjectId(employee_id),
+                "tenantId": resolved_tenant_id,
+            })
+            if not employee:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Perfil de empleado no encontrado"
+                )
+            
+            # Verificar si la cuenta está INACTIVA
+            if employee.get("status") == "INACTIVE":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Tu cuenta está INACTIVA. Contacta al administrador."
+                )
+            
+            # Buscar tenant
+            tenant = await db.tenants.find_one({"tenantId": resolved_tenant_id})
+            if not tenant:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Tenant no encontrado"
+                )
+        else:
+            # Usuario no encontrado en users → podría ser demo antiguo (solo tenant.password)
+            tenant = await db.tenants.find_one({"tenantId": resolved_tenant_id})
+            if not tenant or not tenant.get("isDemo") or "password" not in tenant:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Credenciales incorrectas"
+                )
+            
+            if not verify_password(data.password, tenant["password"]):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Credenciales incorrectas"
+                )
+            
+            # Crear employee temporal para la respuesta del demo
+            employee = {
+                "_id": str(tenant.get("_id")),
+                "tenantId": tenant.get("tenantId"),
+                "email": tenant.get("email"),
+                "firstName": tenant.get("businessName", "Admin"),
+                "lastName": "",
+                "role": "ADMIN",
+                "isOwner": True,
+                "status": "ACTIVE",
+                "username": tenant.get("email", ""),
+            }
     else:
-        # Backward compatibility SOLO para demos (tenants con password)
+        # ===== SIN SCOPE — SOLO backward compatibility para demos =====
         tenant = await db.tenants.find_one({
             "$or": [
                 {"email": login_query},
@@ -331,15 +357,6 @@ async def login_tenant(data: TenantLoginRequest):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Suscripción inactiva. Contacte al administrador."
-        )
-    
-    # SEGURIDAD: si no se proporcionó businessCode ni tenantId para scope,
-    # solo permitir para cuentas demo (backward compatibility).
-    # Para cuentas reales, el businessCode es obligatorio.
-    if not data.businessCode and not data.tenantId and not tenant.get("isDemo"):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales incorrectas"
         )
     
     # Auto-cleanup para cuentas demo: borra datos creados en sesiones anteriores

@@ -34,16 +34,17 @@ async def lifespan(app: FastAPI):
     await connect_to_mongodb()
     logger.info("MongoDB conectado")
     
-    # Validación ligera de índices (solo lectura — no crea ni dropea).
-    # Los índices se migran manualmente con: python scripts/migrate_indexes.py
-    from app.database import get_database, Collections
-    db = get_database()
-    existing_indexes = await db[Collections.TENANTS].index_information()
-    if "tenantId_1" not in existing_indexes:
+    # Validación de índices críticos (solo lectura — no crea ni dropea).
+    from app.database import validate_required_indexes
+    missing_indexes = await validate_required_indexes()
+    if missing_indexes:
         logger.warning(
-            "Índices de base de datos no encontrados. "
-            "Ejecutá: python scripts/migrate_indexes.py"
+            "Índices críticos faltantes (%d). Ejecutá: python scripts/migrate_indexes.py\n  - %s",
+            len(missing_indexes),
+            "\n  - ".join(missing_indexes),
         )
+    else:
+        logger.info("Índices críticos verificados")
     
     # Inicializar usuarios por defecto (admin/receptor) — gated por flag
     if settings.ENABLE_DEFAULT_USERS:

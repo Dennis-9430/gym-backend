@@ -155,3 +155,37 @@ async def create_indexes():
                 continue
 
             logger.warning("No se pudo crear índice %s en %s: %s", keys, collection.name, e)
+
+
+# Índices críticos que DEBEN existir para operación segura.
+# Formato: (collection_name, index_name, descripción)
+REQUIRED_INDEXES = [
+    (Collections.TENANTS, "tenantId_1", "tenantId único"),
+    (Collections.TENANTS, "businessCode_1", "businessCode único (slug)"),
+    (Collections.TENANTS, "email_1", "email único"),
+    (Collections.USERS, "tenantId_1_username_1", "usuario único por tenant"),
+    (Collections.EMPLOYEES, "tenantId_1_username_1", "employee único por tenant"),
+    (Collections.CLIENTS, "tenantId_1_documentNumber_1", "documento único por tenant"),
+    (Collections.PRODUCTS, "tenantId_1_code_1", "código único por tenant"),
+    (Collections.INVOICES, "tenantId_1_invoiceNumber_1", "factura única por tenant"),
+    (Collections.COUNTERS, "tenantId_1", "contador único por tenant"),
+]
+
+
+async def validate_required_indexes() -> list[str]:
+    """Valida que los índices críticos existan en cada colección.
+    Retorna lista de índices faltantes. No crea ni dropea nada.
+    Usar en startup para verificar que la migración se ejecutó.
+    """
+    db = get_database()
+    missing = []
+
+    for collection_name, index_name, description in REQUIRED_INDEXES:
+        try:
+            indexes = await db[collection_name].index_information()
+            if index_name not in indexes:
+                missing.append(f"{collection_name}.{index_name} ({description})")
+        except Exception as e:
+            missing.append(f"{collection_name}.{index_name}: error al verificar: {e}")
+
+    return missing

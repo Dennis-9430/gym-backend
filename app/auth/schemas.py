@@ -10,6 +10,7 @@ class UserRole(str, Enum):
     ADMIN = "ADMIN"
     RECEPCIONISTA = "RECEPCIONISTA"
     GERENTE = "GERENTE"
+    SUPER_ADMIN = "SUPER_ADMIN"
 
 
 class TokenData(BaseModel):

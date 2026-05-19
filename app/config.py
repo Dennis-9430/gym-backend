@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = "Gym Management <noreply@gymmanagement.com>"
     FRONTEND_URL: str = "http://localhost:5173"
 
+    # SUPER_ADMIN — Configuración para el superadmin del sistema
+    SUPER_ADMIN_EMAIL: str = ""
+    SUPER_ADMIN_PASSWORD: str = ""
+    SUPER_ADMIN_NAME: str = "System Administrator"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PENDIENTES PARA PRODUCCIÓN REAL

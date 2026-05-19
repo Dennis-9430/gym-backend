@@ -18,6 +18,7 @@ from app.routers.tenants import router as tenants_router
 from app.routers.notifications import router as notifications_router
 from app.routers.invoices import router as invoices_router
 from app.routers.demo import router as demo_router
+from app.routers.admin import router as admin_router
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.plan_protection import PlanProtectionMiddleware
 
@@ -53,6 +54,11 @@ async def lifespan(app: FastAPI):
         logger.info("Usuarios default inicializados")
     else:
         logger.info("Usuarios default desactivados (ENABLE_DEFAULT_USERS=false)")
+    
+    # Crear SUPER_ADMIN si las credenciales están configuradas
+    from app.database import create_super_admin
+    await create_super_admin()
+    logger.info("SUPER_ADMIN verificado")
     
     # Inicializar empleados seed (demo data) — gated por ENABLE_DEMO_SEED
     if settings.ENABLE_DEMO_SEED:
@@ -144,6 +150,7 @@ app.include_router(tenants_router)
 app.include_router(notifications_router)
 app.include_router(invoices_router)
 app.include_router(demo_router)
+app.include_router(admin_router)
 
 # Rate limiting - 1000 requests por minuto (suficiente para bursts del dashboard SPA)
 app.add_middleware(RateLimitMiddleware, rate_limit=1000)

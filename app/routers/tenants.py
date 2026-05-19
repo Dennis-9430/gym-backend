@@ -134,7 +134,7 @@ async def register_tenant(data: TenantCreate):
             "businessAddress": data.businessAddress or "",
             "businessRuc": data.businessRuc or "",
             "plan": data.plan,
-            "subscriptionStatus": SubscriptionStatus.ACTIVE,  # Temporal: activo inmediatamente
+            "subscriptionStatus": SubscriptionStatus.PENDING_PAYMENT,  # Nuevo registro: espera pago
             "subscriptionEndDate": None,
             "taxRate": 12.0,
             "currency": "USD",
@@ -242,6 +242,39 @@ async def login_tenant(data: TenantLoginRequest, response: Response):
     db = get_database()
     """Login tenant by username + password — users es la fuente única de credenciales"""
     login_query = data.email.strip().lower()
+    
+    # ── SUPER_ADMIN login: detectar por email sin tenant scoping ──
+    super_admin_user = await db.users.find_one({
+        "username": login_query,
+        "role": "SUPER_ADMIN",
+        "tenantId": None,
+    })
+    if super_admin_user:
+        if not verify_password(data.password, super_admin_user["password_hash"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Credenciales incorrectas"
+            )
+        token_data = {
+            "sub": super_admin_user["username"],
+            "role": "SUPER_ADMIN",
+            "tenantId": None,
+            "plan": "BASIC",
+            "isOwner": False,
+        }
+        access_token = create_access_token(token_data)
+        set_auth_cookie(response, access_token)
+        return TenantLoginResponse(
+            accessToken=access_token,
+            tenant=TenantResponse(
+                id="",
+                tenantId="",
+                email=data.email,
+                businessName="System Administrator",
+                plan=SubscriptionPlan.BASIC,
+                subscriptionStatus=SubscriptionStatus.ACTIVE,
+            )
+        )
     
     # Resolver tenantId desde businessCode (slug) si se envió
     resolved_tenant_id = data.tenantId
@@ -417,8 +450,32 @@ async def logout_tenant(response: Response):
 @router.post("/forgot-password")
 async def forgot_password(data: PasswordResetRequest, db: AsyncIOMotorDatabase = Depends(get_database)):
     """Solicitar recuperación de contraseña por email — requiere businessCode o tenantId"""
-    # SEGURIDAD: exigir businessCode o tenantId para evitar ambigüedad entre tenants
+    # ── SUPER_ADMIN: permitir reset sin businessCode/tenantId ──
     if not data.businessCode and not data.tenantId:
+        email_lower = data.email.strip().lower()
+        super_admin = await db.users.find_one({
+            "username": email_lower,
+            "role": "SUPER_ADMIN",
+            "tenantId": None,
+        })
+        if super_admin:
+            raw_token = await create_reset_token(
+                db=db,
+                username=super_admin["username"],
+                tenant_id=None,
+                employee_id=None,
+            )
+            frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
+            reset_link = f"{frontend_url}/reset-password?token={raw_token}"
+            import asyncio
+            asyncio.create_task(
+                send_password_reset_email(
+                    to=super_admin["username"],
+                    reset_link=reset_link,
+                    business_name="System Administrator",
+                )
+            )
+            return {"message": "Si el correo existe, recibirás un enlace de recuperación"}
         # No revelar si el usuario existe ni si el scope es válido
         return {"message": "Si el correo existe, recibirás un enlace de recuperación"}
     

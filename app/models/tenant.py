@@ -19,6 +19,14 @@ class SubscriptionStatus(str, Enum):
     EXPIRED = "EXPIRED"
     PENDING = "PENDING"
     CANCELLED = "CANCELLED"
+    PENDING_PAYMENT = "PENDING_PAYMENT"
+    SUSPENDED = "SUSPENDED"
+
+
+class PaymentMethod(str, Enum):
+    CASH = "CASH"
+    TRANSFER = "TRANSFER"
+    OTHER = "OTHER"
 
 
 def slugify(text: str) -> str:
@@ -115,3 +123,29 @@ class TenantLoginResponse(BaseModel):
     accessToken: str
     tokenType: str = "bearer"
     tenant: TenantResponse
+
+
+class ManualPaymentCreate(BaseModel):
+    plan: SubscriptionPlan
+    months: int = Field(ge=1, le=24)
+    amount: float = Field(gt=0)
+    currency: str = "USD"
+    method: PaymentMethod
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ManualPaymentResponse(BaseModel):
+    id: str
+    tenantId: str
+    plan: SubscriptionPlan
+    months: int
+    amount: float
+    currency: str
+    method: PaymentMethod
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+    registeredBy: Optional[str] = None
+    subscriptionStartDate: Optional[datetime] = None
+    subscriptionEndDate: Optional[datetime] = None
+    createdAt: Optional[datetime] = None

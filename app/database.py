@@ -62,6 +62,7 @@ class Collections:
     INVOICES = "invoices"
     COUNTERS = "counters"
     PASSWORD_RESET_TOKENS = "password_reset_tokens"
+    TENANT_PAYMENTS = "tenant_payments"
 
 
 def _infer_index_name(keys):
@@ -118,6 +119,7 @@ async def create_indexes():
         (db[Collections.COUNTERS], [("tenantId", 1)], True),
         (db["notification_configs"], [("tenantId", 1), ("type", 1)], True),
         (db["notification_logs"], [("tenantId", 1), ("clientId", 1), ("sentAt", -1)], False),
+        (db[Collections.TENANT_PAYMENTS], [("tenantId", 1), ("createdAt", -1)], False),
     ]
 
     for collection, keys, unique in index_configs:
@@ -172,6 +174,7 @@ REQUIRED_INDEXES = [
     (Collections.COUNTERS, "tenantId_1", "contador único por tenant"),
     (Collections.PASSWORD_RESET_TOKENS, "token_hash_1", "hash único de reset token"),
     (Collections.PASSWORD_RESET_TOKENS, "tenantId_1_used_1", "reset tokens por tenant"),
+    (Collections.TENANT_PAYMENTS, "tenantId_1_createdAt_-1", "payments por tenant ordenado"),
 ]
 
 
@@ -192,3 +195,42 @@ async def validate_required_indexes() -> list[str]:
             missing.append(f"{collection_name}.{index_name}: error al verificar: {e}")
 
     return missing
+
+
+async def create_super_admin():
+    """Crea el usuario SUPER_ADMIN en la colección users si no existe.
+    Lee credenciales de config.SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD.
+    Es idempotente — upsert por email.
+    """
+    from app.auth.utils import get_password_hash
+
+    if not settings.SUPER_ADMIN_EMAIL or not settings.SUPER_ADMIN_PASSWORD:
+        logging.getLogger(__name__).warning(
+            "SUPER_ADMIN_EMAIL o SUPER_ADMIN_PASSWORD no configurados — saltando creación de SUPER_ADMIN"
+        )
+        return
+
+    db = get_database()
+    email = settings.SUPER_ADMIN_EMAIL.strip().lower()
+
+    existing = await db[Collections.USERS].find_one({"username": email})
+    if existing:
+        logging.getLogger(__name__).info("SUPER_ADMIN ya existe — actualizando datos")
+        await db[Collections.USERS].update_one(
+            {"username": email},
+            {"$set": {
+                "role": "SUPER_ADMIN",
+                "tenantId": None,
+                "isOwner": False,
+            }}
+        )
+        return
+
+    await db[Collections.USERS].insert_one({
+        "username": email,
+        "password_hash": get_password_hash(settings.SUPER_ADMIN_PASSWORD),
+        "role": "SUPER_ADMIN",
+        "tenantId": None,
+        "isOwner": False,
+    })
+    logging.getLogger(__name__).info("SUPER_ADMIN creado exitosamente")

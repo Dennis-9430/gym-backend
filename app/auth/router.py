@@ -1,25 +1,39 @@
 # Rutas de autenticación (login, register, logout)
 # Relacionado con: auth/service.py, auth/schemas.py, auth/utils.py
 """Authentication router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Header
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from app.auth.schemas import Token, UserResponse, UserCreate, PasswordChange
 from app.auth.service import authenticate_user, create_token, get_user_by_username, initialize_default_users
 from app.auth.utils import get_password_hash, decode_token
 from app.auth.schemas import UserRole
+from app.auth.cookie import get_token_from_request
 
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 # OAuth2 scheme para obtener token del header
 # Relacionado con: auth/service.py (create_token)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
+async def get_current_user(
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
+) -> UserResponse:
     # Extrae y valida el usuario del token JWT
     # Relacionado con: auth/utils.py (decode_token)
-    """Get current authenticated user from token"""
+    """Get current authenticated user from cookie (HttpOnly) or Authorization header"""
+    # Intentar cookie primero, después header
+    token = get_token_from_request(request) or token
+    
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     payload = decode_token(token)
     if payload is None:
         raise HTTPException(

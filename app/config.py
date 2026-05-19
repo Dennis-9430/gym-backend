@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
+    # Cookie HttpOnly — JWT se envía como cookie segura además del body
+    # En producción, COOKIE_SECURE debe ser True (requiere HTTPS)
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "lax"  # lax | strict | none
+    COOKIE_DOMAIN: str = ""       # Dominio de la cookie (vacío = solo origen actual)
+    
     @field_validator("JWT_SECRET_KEY", mode="before")
     @classmethod
     def validate_jwt_secret(cls, v):

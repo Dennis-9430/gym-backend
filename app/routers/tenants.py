@@ -4,7 +4,7 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 from bson import ObjectId
-from fastapi import APIRouter, HTTPException, Depends, status, Header
+from fastapi import APIRouter, HTTPException, Depends, status, Header, Response
 from pydantic import BaseModel
 from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -28,6 +28,7 @@ from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.services.email import send_password_reset_email
 from app.services.password_reset import create_reset_token, consume_reset_token
+from app.auth.cookie import set_auth_cookie, clear_auth_cookie
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
 
@@ -237,7 +238,7 @@ async def register_tenant(data: TenantCreate):
 
 
 @router.post("/login", response_model=TenantLoginResponse)
-async def login_tenant(data: TenantLoginRequest):
+async def login_tenant(data: TenantLoginRequest, response: Response):
     db = get_database()
     """Login tenant by username + password — users es la fuente única de credenciales"""
     login_query = data.email.strip().lower()
@@ -394,10 +395,22 @@ async def login_tenant(data: TenantLoginRequest):
     tenant_response["ownerLastName"] = employee.get("lastName", "")
     tenant_response["ownerUsername"] = employee.get("username", "")
     
+    # Setear cookie HttpOnly con el JWT (segura contra XSS)
+    set_auth_cookie(response, access_token)
+    
     return TenantLoginResponse(
         accessToken=access_token,
         tenant=TenantResponse(**tenant_response)
     )
+
+
+@router.post("/logout")
+async def logout_tenant(response: Response):
+    """Cerrar sesión — elimina la cookie HttpOnly.
+    El frontend también debe limpiar localStorage (clearAuthStorage).
+    """
+    clear_auth_cookie(response)
+    return {"message": "Sesión cerrada correctamente"}
 
 
 # Recuperación de contraseña

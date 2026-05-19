@@ -26,6 +26,8 @@ from app.models.employee import EmployeeResponse, EmployeeUpdate
 from app.auth.utils import verify_password, get_password_hash, create_access_token
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
+from app.services.email import send_password_reset_email
+from app.services.password_reset import create_reset_token, consume_reset_token
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
 
@@ -321,6 +323,7 @@ async def login_tenant(data: TenantLoginRequest):
             }
     else:
         # ===== SIN SCOPE — SOLO backward compatibility para demos =====
+        user = None
         tenant = await db.tenants.find_one({
             "$or": [
                 {"email": login_query},
@@ -408,14 +411,19 @@ async def forgot_password(data: PasswordResetRequest, db: AsyncIOMotorDatabase =
     
     # Resolver tenantId desde businessCode si se envió
     resolved_tenant_id = data.tenantId
+    tenant_doc = None
     if data.businessCode and not resolved_tenant_id:
-        tenant_by_code = await db.tenants.find_one({"businessCode": data.businessCode.strip().lower()})
-        if tenant_by_code:
-            resolved_tenant_id = tenant_by_code["tenantId"]
+        tenant_doc = await db.tenants.find_one({"businessCode": data.businessCode.strip().lower()})
+        if tenant_doc:
+            resolved_tenant_id = tenant_doc["tenantId"]
     
     if not resolved_tenant_id:
         # No se pudo resolver tenant — responder genérico sin revelar info
         return {"message": "Si el correo existe, recibirás un enlace de recuperación"}
+    
+    # Obtener tenant doc si no lo tenemos ya
+    if not tenant_doc:
+        tenant_doc = await db.tenants.find_one({"tenantId": resolved_tenant_id})
     
     # Buscar en users (fuente única de credenciales) por username + tenantId
     user_query = {"username": data.email.strip().lower(), "tenantId": resolved_tenant_id}
@@ -424,16 +432,37 @@ async def forgot_password(data: PasswordResetRequest, db: AsyncIOMotorDatabase =
         # Por seguridad, no revelar si el usuario existe
         return {"message": "Si el correo existe, recibirás un enlace de recuperación"}
     
-    # Generar token temporal (15 minutos)
-    reset_token = create_access_token({
-        "sub": user["username"],
-        "type": "password_reset",
+    # Generar token one-time y guardar en DB
+    employee = await db.employees.find_one({
         "tenantId": user.get("tenantId"),
-        "employeeId": user.get("employeeId"),
-    }, expires_delta=timedelta(minutes=15))
-    
-    # Aquí enviarías el email con el token
-    # NOTA: En producción, enviar por email real — no devolver el token
+        "username": user.get("username"),
+    })
+    employee_id = str(employee["_id"]) if employee else user.get("employeeId")
+
+    raw_token = await create_reset_token(
+        db=db,
+        username=user["username"],
+        tenant_id=user.get("tenantId"),
+        employee_id=employee_id,
+    )
+
+    # Armar link de reset (frontend)
+    # En producción, FRONTEND_URL debería venir de variable de entorno
+    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
+    reset_link = f"{frontend_url}/reset-password?token={raw_token}&tenantId={user.get('tenantId')}"
+
+    # Obtener nombre del negocio para el email
+    tenant_name = tenant_doc.get("businessName", "Gimnasio") if tenant_doc else "Gimnasio"
+
+    # Enviar email en background — no bloquear respuesta
+    import asyncio
+    asyncio.create_task(
+        send_password_reset_email(
+            to=user["username"] if "@" in user["username"] else f"{user['username']}@{tenant_name.lower().replace(' ', '')}.com",
+            reset_link=reset_link,
+            business_name=tenant_name,
+        )
+    )
     
     return {
         "message": "Si el correo existe, recibirás un enlace de recuperación",
@@ -442,51 +471,44 @@ async def forgot_password(data: PasswordResetRequest, db: AsyncIOMotorDatabase =
 
 @router.post("/reset-password")
 async def reset_password(data: PasswordResetConfirm, db: AsyncIOMotorDatabase = Depends(get_database)):
-    """Cambiar contraseña con token de recuperación — usando users.password_hash"""
-    try:
-        # Decodificar token con JWT_SECRET_KEY
-        payload = jwt.decode(data.token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        if payload.get("type") != "password_reset":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Token inválido"
-            )
-        
-        employee_id = payload.get("employeeId")
-        tenant_id = payload.get("tenantId")
-        
-        # Buscar usuario en users por employeeId
-        user = await db.users.find_one({
-            "employeeId": employee_id,
-            "tenantId": tenant_id
-        })
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Usuario no encontrado"
-            )
-        
-        # Validar que no sea owner (debe cambiar desde su perfil)
-        if user.get("isOwner", False):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Los owners deben cambiar contraseña desde su perfil"
-            )
-        
-        # Actualizar password_hash en users (único lugar)
-        new_password_hash = get_password_hash(data.newPassword)
-        await db.users.update_one(
-            {"employeeId": employee_id, "tenantId": tenant_id},
-            {"$set": {"password_hash": new_password_hash}}
-        )
-        
-        return {"message": "Contraseña actualizada correctamente"}
-        
-    except JWTError:
+    """Cambiar contraseña con token de recuperación one-time — usando users.password_hash"""
+    # Consumir token one-time (valida expiración, que no esté usado, etc.)
+    token_data = await consume_reset_token(db, data.token)
+    if not token_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Token inválido o expirado"
+            detail="Token inválido, expirado o ya utilizado"
         )
+    
+    employee_id = token_data.get("employeeId")
+    tenant_id = token_data.get("tenantId")
+    
+    # Buscar usuario en users por employeeId
+    user = await db.users.find_one({
+        "employeeId": employee_id,
+        "tenantId": tenant_id
+    })
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado"
+        )
+    
+    # Validar que no sea owner (debe cambiar desde su perfil)
+    if user.get("isOwner", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Los owners deben cambiar contraseña desde su perfil"
+        )
+    
+    # Actualizar password_hash en users (único lugar)
+    new_password_hash = get_password_hash(data.newPassword)
+    await db.users.update_one(
+        {"employeeId": employee_id, "tenantId": tenant_id},
+        {"$set": {"password_hash": new_password_hash}}
+    )
+    
+    return {"message": "Contraseña actualizada correctamente"}
 
 
 @router.get("/me", response_model=TenantResponse)

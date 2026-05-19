@@ -61,6 +61,7 @@ class Collections:
     SERVICES = "services"
     INVOICES = "invoices"
     COUNTERS = "counters"
+    PASSWORD_RESET_TOKENS = "password_reset_tokens"
 
 
 def _infer_index_name(keys):
@@ -169,6 +170,8 @@ REQUIRED_INDEXES = [
     (Collections.PRODUCTS, "tenantId_1_code_1", "código único por tenant"),
     (Collections.INVOICES, "tenantId_1_invoiceNumber_1", "factura única por tenant"),
     (Collections.COUNTERS, "tenantId_1", "contador único por tenant"),
+    (Collections.PASSWORD_RESET_TOKENS, "token_hash_1", "hash único de reset token"),
+    (Collections.PASSWORD_RESET_TOKENS, "tenantId_1_used_1", "reset tokens por tenant"),
 ]
 
 

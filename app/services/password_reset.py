@@ -2,12 +2,17 @@
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database import Collections
+
+
+def _now_utc() -> datetime:
+    """Retorna datetime UTC sin timezone (naive), compatible con MongoDB existente."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _hash_token(token: str) -> str:
@@ -29,7 +34,7 @@ async def create_reset_token(
     """
     raw_token = secrets.token_urlsafe(48)
     token_hash = _hash_token(raw_token)
-    expires_at = datetime.utcnow() + timedelta(minutes=expires_in_minutes)
+    expires_at = _now_utc() + timedelta(minutes=expires_in_minutes)
 
     await db[Collections.PASSWORD_RESET_TOKENS].insert_one({
         "token_hash": token_hash,
@@ -39,7 +44,7 @@ async def create_reset_token(
         "expiresAt": expires_at,
         "used": False,
         "usedAt": None,
-        "createdAt": datetime.utcnow(),
+        "createdAt": _now_utc(),
     })
 
     return raw_token
@@ -66,7 +71,8 @@ async def consume_reset_token(
         return None
 
     # Verificar expiración
-    if doc.get("expiresAt") and doc["expiresAt"] < datetime.utcnow():
+    expires_at = doc.get("expiresAt")
+    if expires_at and expires_at < _now_utc():
         await db[Collections.PASSWORD_RESET_TOKENS].delete_one({"_id": doc["_id"]})
         return None
 
@@ -77,7 +83,7 @@ async def consume_reset_token(
     # Marcar como usado (one-time)
     await db[Collections.PASSWORD_RESET_TOKENS].update_one(
         {"_id": doc["_id"]},
-        {"$set": {"used": True, "usedAt": datetime.utcnow()}},
+        {"$set": {"used": True, "usedAt": _now_utc()}},
     )
 
     return {
@@ -95,5 +101,5 @@ async def invalidate_user_tokens(db: AsyncIOMotorDatabase, username: str, tenant
             "tenantId": tenant_id,
             "used": False,
         },
-        {"$set": {"used": True, "usedAt": datetime.utcnow()}},
+        {"$set": {"used": True, "usedAt": _now_utc()}},
     )

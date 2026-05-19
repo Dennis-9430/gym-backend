@@ -162,5 +162,5 @@ if __name__ == "__main__":
         "app.main:app",
         host="0.0.0.0",  # Escuchar en todas las interfaces
         port=8000,
-        reload=True
+        reload=settings.DEBUG
     )

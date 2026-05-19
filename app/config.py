@@ -2,7 +2,6 @@
 # Relacionado con: .env, database.py, main.py
 """Application configuration using pydantic-settings"""
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator
 from typing import Optional
 import os
 
@@ -20,22 +19,15 @@ class Settings(BaseSettings):
     # JWT - Configuración de autenticación
     # IMPORTANTE: En producción debe venir de variable de entorno
     # Relacionado con: auth/utils.py
-    JWT_SECRET_KEY: str = Field(default="", description="JWT secret key - obligatorio en producción")
+    JWT_SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
     # Cookie HttpOnly — JWT se envía como cookie segura además del body
-    # En producción, COOKIE_SECURE debe ser True (requiere HTTPS)
+    # En producción (DEBUG=False), COOKIE_SECURE se fuerza a True automáticamente
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "lax"  # lax | strict | none
     COOKIE_DOMAIN: str = ""       # Dominio de la cookie (vacío = solo origen actual)
-    
-    @field_validator("JWT_SECRET_KEY", mode="before")
-    @classmethod
-    def validate_jwt_secret(cls, v):
-        if not v or v == "":
-            raise ValueError("JWT_SECRET_KEY es obligatorio en producción. Configuralo en variable de entorno.")
-        return v
     
     # API - Configuración del servidor
     # Relacionado con: main.py
@@ -112,10 +104,6 @@ class Settings(BaseSettings):
 # 7. LOGIN CON SUBDOMINIOS
 #    - Cuando el sistema se despliegue con subdominios por tenant,
 #      el tenantId se puede extraer del subdominio en lugar del input manual.
-#
-# 8. JWT SECRET
-#    - JWT_SECRET_KEY debe ser una variable de entorno con valor seguro.
-#    - El default 'dev-only-jwt-secret-change-in-production' solo para dev.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -126,13 +114,20 @@ class Settings(BaseSettings):
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Validación de JWT en producción
+
+        # JWT: en desarrollo generamos una clave por defecto; en producción es obligatoria
         if not self.JWT_SECRET_KEY:
-            # En desarrollo permite默认值 temporal, en producción debefallar
-            if os.getenv("DEBUG", "").lower() == "true":
+            if self.DEBUG:
                 self.JWT_SECRET_KEY = "dev-only-jwt-secret-change-in-production"
             else:
-                raise ValueError("JWT_SECRET_KEY es obligatorio en producción. Define la variable de entorno.")
+                raise ValueError(
+                    "JWT_SECRET_KEY es obligatorio en producción. "
+                    "Configúralo en el archivo .env o como variable de entorno."
+                )
+
+        # En producción (DEBUG=False), forzamos COOKIE_SECURE=True
+        if not self.DEBUG and not self.COOKIE_SECURE:
+            self.COOKIE_SECURE = True
 
 
 settings = Settings()

@@ -198,9 +198,14 @@ async def validate_required_indexes() -> list[str]:
 
 
 async def create_super_admin():
-    """Crea el usuario SUPER_ADMIN en la colección users si no existe.
+    """Crea el usuario SUPER_ADMIN en la colección users si NO existe ninguno.
+
     Lee credenciales de config.SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD.
-    Es idempotente — upsert por email.
+    Solo crea si no hay un SUPER_ADMIN registrado — NUNCA actualiza credenciales
+    existentes. Esto protege cambios hechos via API/CLI de ser pisados al reiniciar.
+    
+    Si necesitás resetear credenciales: usar scripts/manage_super_admin.py
+    o el endpoint POST /api/admin/super-admin/update-credentials.
     """
     from app.auth.utils import get_password_hash
 
@@ -211,24 +216,17 @@ async def create_super_admin():
         return
 
     db = get_database()
-    email = settings.SUPER_ADMIN_EMAIL.strip().lower()
 
-    existing = await db[Collections.USERS].find_one({"username": email})
+    # Si ya existe un SUPER_ADMIN (por rol), no tocamos nada
+    existing = await db[Collections.USERS].find_one({"role": "SUPER_ADMIN"})
     if existing:
-        logging.getLogger(__name__).info("SUPER_ADMIN ya existe — actualizando datos")
-        update: dict = {
-            "role": "SUPER_ADMIN",
-            "tenantId": None,
-            "isOwner": False,
-        }
-        # Nueva contraseña en .env → actualizar también el hash
-        if settings.SUPER_ADMIN_PASSWORD:
-            update["password_hash"] = get_password_hash(settings.SUPER_ADMIN_PASSWORD)
-        await db[Collections.USERS].update_one(
-            {"username": email},
-            {"$set": update},
+        logging.getLogger(__name__).info(
+            "SUPER_ADMIN ya existe (username=%s) — saltando creación para no pisar cambios",
+            existing.get("username"),
         )
         return
+
+    email = settings.SUPER_ADMIN_EMAIL.strip().lower()
 
     await db[Collections.USERS].insert_one({
         "username": email,
@@ -237,4 +235,4 @@ async def create_super_admin():
         "tenantId": None,
         "isOwner": False,
     })
-    logging.getLogger(__name__).info("SUPER_ADMIN creado exitosamente")
+    logging.getLogger(__name__).info("SUPER_ADMIN creado exitosamente con email %s", email)

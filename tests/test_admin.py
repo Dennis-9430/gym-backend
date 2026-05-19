@@ -342,6 +342,8 @@ async def test_manual_payment_activates_tenant(
     assert payment["amount"] == 60.0
     assert payment["method"] == "CASH"
     assert payment["reference"] == "PAGO-001"
+    assert payment["status"] == "PAID", "Pago manual debe quedar como PAID"
+    assert payment["source"] == "MANUAL", "Pago manual debe indicar source=MANUAL"
 
     # Verificar que el tenant ahora está ACTIVE
     resp = await client.get(
@@ -439,14 +441,13 @@ async def test_reactivate_tenant(client, seed_tenants, super_admin_token):
     assert resp.status_code == 200, f"Esperaba 200, obtuve {resp.status_code}: {resp.text}"
     assert resp.json()["subscriptionStatus"] == SubscriptionStatus.ACTIVE
 
-    # Reactivar expirado
+    # Reactivar expirado → NO permitido (debe usar pago manual)
     resp = await client.post(
         f"/api/admin/tenants/tenant-expired-004/reactivate",
         json={"reason": "Renovación"},
         headers={"Authorization": f"Bearer {super_admin_token}"},
     )
-    assert resp.status_code == 200
-    assert resp.json()["subscriptionStatus"] == SubscriptionStatus.ACTIVE
+    assert resp.status_code == 400, f"EXPIRED debe usar pago manual, no reactivate: {resp.text}"
 
     # Intentar reactivar un tenant ACTIVE
     resp = await client.post(

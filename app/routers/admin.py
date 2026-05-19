@@ -241,6 +241,8 @@ async def admin_manual_payment(
         "registeredBy": current_user.username,
         "subscriptionStartDate": start_date,
         "subscriptionEndDate": end_date,
+        "status": "PAID",          # 🔒 Pagos manuales siempre confirmados
+        "source": "MANUAL",        # 🔑 Diferencia de pagos automáticos futuros
         "createdAt": now,
     }
     payment_result = await db[Collections.TENANT_PAYMENTS].insert_one(payment_doc)
@@ -353,7 +355,7 @@ async def admin_reactivate_tenant(
     data: ReactivateRequest = ReactivateRequest(reason=""),
     _: UserResponse = Depends(require_super_admin),
 ):
-    """Reactivar un tenant — cambia status a ACTIVE. Solo si está SUSPENDED o EXPIRED."""
+    """Reactivar un tenant — cambia status a ACTIVE. Solo si está SUSPENDED."""
     db = get_database()
 
     tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
@@ -361,13 +363,10 @@ async def admin_reactivate_tenant(
         raise HTTPException(status_code=404, detail="Tenant no encontrado")
 
     current_status = tenant.get("subscriptionStatus")
-    if current_status not in [
-        SubscriptionStatus.SUSPENDED,
-        SubscriptionStatus.EXPIRED,
-    ]:
+    if current_status != SubscriptionStatus.SUSPENDED:
         raise HTTPException(
             status_code=400,
-            detail=f"No se puede reactivar un tenant con estado {current_status}"
+            detail=f"No se puede reactivar un tenant con estado {current_status}. Usá pago manual para EXPIRED."
         )
 
     await db[Collections.TENANTS].update_one(

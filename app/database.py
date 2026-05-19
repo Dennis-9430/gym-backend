@@ -216,13 +216,17 @@ async def create_super_admin():
     existing = await db[Collections.USERS].find_one({"username": email})
     if existing:
         logging.getLogger(__name__).info("SUPER_ADMIN ya existe — actualizando datos")
+        update: dict = {
+            "role": "SUPER_ADMIN",
+            "tenantId": None,
+            "isOwner": False,
+        }
+        # Nueva contraseña en .env → actualizar también el hash
+        if settings.SUPER_ADMIN_PASSWORD:
+            update["password_hash"] = get_password_hash(settings.SUPER_ADMIN_PASSWORD)
         await db[Collections.USERS].update_one(
             {"username": email},
-            {"$set": {
-                "role": "SUPER_ADMIN",
-                "tenantId": None,
-                "isOwner": False,
-            }}
+            {"$set": update},
         )
         return
 

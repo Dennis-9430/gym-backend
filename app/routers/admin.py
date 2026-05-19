@@ -424,3 +424,71 @@ async def admin_tenant_payments(
         "page": page,
         "limit": limit,
     }
+
+
+# ── SUPER_ADMIN credentials ────────────────────────────────────────────────────
+
+
+class UpdateSuperAdminCredentialsRequest(BaseModel):
+    """Request para actualizar credenciales del SUPER_ADMIN via API."""
+    email: Optional[str] = None
+    current_password: str
+    new_password: Optional[str] = None
+
+
+@router.post("/super-admin/update-credentials")
+async def update_super_admin_credentials(
+    body: UpdateSuperAdminCredentialsRequest,
+    current_user: UserResponse = Depends(require_super_admin),
+):
+    """Actualiza email y/o contraseña del SUPER_ADMIN.
+    
+    Requiere contraseña actual para cualquier cambio.
+    No requiere reinicio del servidor.
+    """
+    from app.auth.utils import verify_password, get_password_hash
+
+    db = get_database()
+
+    # Buscar el documento completo del SUPER_ADMIN
+    admin_doc = await db[Collections.USERS].find_one({"username": current_user.username})
+    if not admin_doc:
+        raise HTTPException(status_code=404, detail="SUPER_ADMIN no encontrado en la base de datos")
+
+    # Verificar contraseña actual
+    if not verify_password(body.current_password, admin_doc["password_hash"]):
+        raise HTTPException(status_code=403, detail="Contraseña actual incorrecta")
+
+    update: dict = {}
+
+    # Actualizar email
+    if body.email and body.email.strip().lower() != current_user.username:
+        new_email = body.email.strip().lower()
+        # Verificar que no esté en uso por otro usuario
+        conflict = await db[Collections.USERS].find_one({
+            "username": new_email,
+            "_id": {"$ne": admin_doc["_id"]},
+        })
+        if conflict:
+            raise HTTPException(status_code=409, detail="El email ya está en uso por otro usuario")
+        update["username"] = new_email
+
+    # Actualizar contraseña
+    if body.new_password:
+        update["password_hash"] = get_password_hash(body.new_password)
+
+    if not update:
+        raise HTTPException(status_code=400, detail="No hay cambios que aplicar")
+
+    await db[Collections.USERS].update_one(
+        {"_id": admin_doc["_id"]},
+        {"$set": update},
+    )
+
+    result = []
+    if "username" in update:
+        result.append(f"email actualizado a {update['username']}")
+    if "password_hash" in update:
+        result.append("contraseña actualizada")
+
+    return {"message": f"Credenciales actualizadas: {', '.join(result)}"}

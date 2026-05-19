@@ -1,6 +1,22 @@
 # Middleware de rate limiting simple
 # Relacionado con: main.py
-"""Simple rate limiting middleware"""
+"""
+Simple rate limiting middleware
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  PENDIENTE: Rate limit con Redis                                        ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║  Este rate limiter usa almacenamiento en memoria (dict), que no         ║
+║  funciona en multi-instancia ni sobrevive reinicios.                    ║
+║                                                                         ║
+║  Para producción con múltiples workers o instancias:                    ║
+║  1. Instalar redis-py y configurar REDIS_URL en .env                    ║
+║  2. Reemplazar _rate_limit_store por Redis (ej: redis-py + incr/expire) ║
+║  3. Mantener este módulo como fallback local si REDIS_URL no está set   ║
+║                                                                         ║
+║  Referencia: app/middleware/rate_limit.py, app/config.py                ║
+╚══════════════════════════════════════════════════════════════════════════╝
+"""
 import time
 from typing import Dict, Tuple
 from fastapi import Request, HTTPException

@@ -17,38 +17,11 @@ async def connect_to_mongodb() -> None:
     # Relacionado con: main.py (lifespan)
     """Initialize MongoDB connection"""
     global _client, _database
+    _client = AsyncIOMotorClient(settings.MONGODB_URL)
+    _database = _client[settings.MONGODB_DB_NAME]
 
-    # Parche temporal: forzar TLS 1.2 para compatibilidad con Atlas M2.
-    # Python 3.14+ negocia TLS 1.3 por defecto (OpenSSL 3.x), pero Atlas
-    # free tier M2 devuelve TLSV1_ALERT_INTERNAL_ERROR con TLS 1.3.
-    # Parcheamos SSLContext solo durante la conexión para que PyMongo/Motor
-    # herede la configuración forzada de TLS 1.2.
-    import ssl as _ssl
-    _original_ssl_context = _ssl.SSLContext
-
-    class _ForcedTLS12Context(_original_ssl_context):
-        def __init__(self, protocol=_ssl.PROTOCOL_TLS_CLIENT):
-            super().__init__(protocol)
-            self.minimum_version = _ssl.TLSVersion.TLSv1_2
-            self.maximum_version = _ssl.TLSVersion.TLSv1_2
-            self.check_hostname = False
-            self.verify_mode = _ssl.CERT_NONE
-
-    _ssl.SSLContext = _ForcedTLS12Context
-
-    try:
-        _client = AsyncIOMotorClient(
-            settings.MONGODB_URL,
-            tls=True,
-            tlsInsecure=True,
-        )
-        _database = _client[settings.MONGODB_DB_NAME]
-
-        # Verifica que la conexión funcione
-        await _client.admin.command("ping")
-    finally:
-        # Restaurar SSLContext original para no afectar otras conexiones
-        _ssl.SSLContext = _original_ssl_context
+    # Verifica que la conexión funcione
+    await _client.admin.command("ping")
 
 
 async def close_mongodb_connection() -> None:

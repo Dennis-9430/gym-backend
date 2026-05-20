@@ -17,21 +17,10 @@ async def connect_to_mongodb() -> None:
     # Relacionado con: main.py (lifespan)
     """Initialize MongoDB connection"""
     global _client, _database
-
-    # Forzar TLS 1.2 para compatibilidad con Atlas (Python 3.14+ negocia TLS 1.3
-    # por defecto, que Atlas free tier no soporta correctamente)
-    import ssl
-    tls_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    tls_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    tls_ctx.maximum_version = ssl.TLSVersion.TLSv1_2
-    tls_ctx.check_hostname = False
-    tls_ctx.verify_mode = ssl.CERT_NONE
-
     _client = AsyncIOMotorClient(
         settings.MONGODB_URL,
         tls=True,
         tlsInsecure=True,
-        ssl_context=tls_ctx,
     )
     _database = _client[settings.MONGODB_DB_NAME]
 

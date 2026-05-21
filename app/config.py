@@ -54,9 +54,9 @@ class Settings(BaseSettings):
     ENABLE_DEFAULT_USERS: bool = True   # Crea admin/receptor si no existen
     ENABLE_SCHEDULER: bool = True       # Inicia scheduler de notificaciones
 
-    # Resend — Email transaccional (reset password, facturas)
-    # Obtener API key en https://resend.com/api-keys
-    RESEND_API_KEY: str = ""
+    # SendGrid — Email transaccional (reset password, facturas)
+    # Obtener API key en https://app.sendgrid.com/settings/api_keys
+    SENDGRID_API_KEY: str = ""
     EMAIL_FROM: str = "Gym Management <noreply@gymmanagement.com>"
     FRONTEND_URL: str = "http://localhost:5173"
 

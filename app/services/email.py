@@ -1,4 +1,4 @@
-"""Servicio de email transaccional usando Resend."""
+"""Servicio de email transaccional usando SendGrid."""
 
 import logging
 from typing import Optional
@@ -6,24 +6,23 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Inicialización lazy de Resend — solo si hay API key configurada
-_resend_available = False
+# Inicialización lazy de SendGrid — solo si hay API key configurada
+_sendgrid_available = False
 
 
-def _init_resend():
-    global _resend_available
-    if settings.RESEND_API_KEY:
+def _init_sendgrid():
+    global _sendgrid_available
+    if settings.SENDGRID_API_KEY:
         try:
-            import resend
-            resend.api_key = settings.RESEND_API_KEY
-            _resend_available = True
-            logger.info("Resend inicializado correctamente")
+            import sendgrid
+            _sendgrid_available = True
+            logger.info("SendGrid inicializado correctamente")
         except Exception as e:
-            logger.warning("No se pudo inicializar Resend: %s. Los emails se loguearán por consola.", e)
-            _resend_available = False
+            logger.warning("No se pudo inicializar SendGrid: %s. Los emails se loguearán por consola.", e)
+            _sendgrid_available = False
     else:
-        logger.info("RESEND_API_KEY no configurada. Los emails se loguearán por consola.")
-        _resend_available = False
+        logger.info("SENDGRID_API_KEY no configurada. Los emails se loguearán por consola.")
+        _sendgrid_available = False
 
 
 async def send_email(
@@ -32,33 +31,35 @@ async def send_email(
     html: str,
     text: str = "",
 ) -> bool:
-    """Envía un email transaccional vía Resend.
+    """Envía un email transaccional vía SendGrid.
     
-    Si Resend no está configurado, loguea el contenido por consola (modo dev).
+    Si SendGrid no está configurado, loguea el contenido por consola (modo dev).
     
     Returns:
         True si se envió (o logueó) correctamente, False si falló.
     """
-    if not _resend_available:
-        _init_resend()
+    if not _sendgrid_available:
+        _init_sendgrid()
 
-    if not _resend_available:
+    if not _sendgrid_available:
         logger.info("[EMAIL - MODO DEV] Para: %s | Asunto: %s\n%s", to, subject, html)
         return True
 
     try:
-        import resend
-        params = {
-            "from": settings.EMAIL_FROM,
-            "to": to,
-            "subject": subject,
-            "html": html,
-        }
-        if text:
-            params["text"] = text
+        import sendgrid
+        from sendgrid.helpers.mail import Mail
 
-        response = resend.Emails.send(params)
-        logger.info("Email enviado a %s | id=%s", to, response.get("id", "unknown"))
+        sg = sendgrid.SendGridAPIClient(settings.SENDGRID_API_KEY)
+        message = Mail(
+            from_email=settings.EMAIL_FROM,
+            to_emails=to,
+            subject=subject,
+            html_content=html,
+            plain_text_content=text if text else None,
+        )
+
+        response = sg.send(message)
+        logger.info("Email enviado a %s | status_code=%s", to, response.status_code)
         return True
 
     except Exception as e:

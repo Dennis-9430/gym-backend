@@ -1,6 +1,7 @@
 # Router para gestión de facturas
 # Relacionado con: models/invoice.py, database.py
 """Invoices API router"""
+import logging
 from fastapi import APIRouter, HTTPException, Depends, Query, Header
 from typing import Optional
 from bson import ObjectId
@@ -19,7 +20,9 @@ from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
 from app.config import settings
+from app.services.email import send_email
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/invoices", tags=["Invoices"])
 
@@ -235,22 +238,181 @@ async def send_invoice_email(
             "message": "El negocio no tiene email configurado"
         }
     
-    # Aquí iría la lógica de envío de email
-    # Por ahora, marcamos como enviado
-    await db[Collections.INVOICES].update_one(
-        {
-            "_id": ObjectId(email_request.invoiceId),
-            "tenantId": tenant.tenantId
-        },
-        {"$set": {
-            "emailDelivery.sent": True,
-            "emailDelivery.sentAt": datetime.utcnow(),
-            "emailDelivery.recipient": email_request.recipientEmail,
-            "status": InvoiceStatus.SENT.value
-        }}
+    # Preparar datos para la plantilla HTML
+    inv = invoice
+    created_at = inv.get("createdAt", datetime.utcnow())
+    if hasattr(created_at, "strftime"):
+        created_at_str = created_at.strftime("%d/%m/%Y %H:%M")
+    else:
+        created_at_str = str(created_at)
+
+    biz = inv.get("business", {})
+    client = inv.get("client", {})
+    totals = inv.get("totals", {})
+    payment = inv.get("payment", {})
+
+    payment_labels = {"CASH": "Efectivo", "TRANSFER": "Transferencia", "MIXED": "Mixto"}
+    payment_method = payment_labels.get(payment.get("method", ""), payment.get("method", ""))
+
+    # Construir filas de items
+    items_rows = "".join(
+        f"""<tr>
+            <td style="padding: 6px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px;">{item.get("code", "")}</td>
+            <td style="padding: 6px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px;">{item.get("name", "")}</td>
+            <td style="padding: 6px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px; text-align: center;">{item.get("quantity", 0)}</td>
+            <td style="padding: 6px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px; text-align: right;">${item.get("unitPrice", 0):.2f}</td>
+            <td style="padding: 6px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px; text-align: right;">{item.get("discount", 0):.2f}</td>
+            <td style="padding: 6px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px; text-align: right;">${item.get("subtotal", 0):.2f}</td>
+        </tr>"""
+        for item in inv.get("items", [])
     )
-    
-    return {
-        "success": True,
-        "message": f"Factura enviada a {email_request.recipientEmail}"
-    }
+
+    subject = f"Factura {inv.get('invoiceNumber', '')} — {biz.get('name', '')}"
+    html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; padding: 24px; background: #f4f4f5; margin: 0;">
+    <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; padding: 32px;">
+        <!-- Header -->
+        <div style="border-bottom: 2px solid #2563eb; padding-bottom: 16px; margin-bottom: 24px;">
+            <h2 style="color: #1f2937; margin: 0 0 4px 0;">{biz.get("name", "")}</h2>
+            <p style="color: #6b7280; margin: 2px 0; font-size: 13px;">RUC: {biz.get("ruc", "")}</p>
+            <p style="color: #6b7280; margin: 2px 0; font-size: 13px;">
+                {biz.get("address", "")} | Tel: {biz.get("phone", "")} | {biz.get("email", "")}
+            </p>
+        </div>
+
+        <!-- Invoice info + Client -->
+        <div style="display: flex; justify-content: space-between; margin-bottom: 24px;">
+            <div>
+                <h3 style="color: #374151; margin: 0 0 8px 0; font-size: 18px;">Factura N° {inv.get("invoiceNumber", "")}</h3>
+                <p style="color: #6b7280; margin: 2px 0; font-size: 13px;">Fecha: {created_at_str}</p>
+            </div>
+            <div style="text-align: right;">
+                <h4 style="color: #374151; margin: 0 0 8px 0; font-size: 14px;">Cliente</h4>
+                <p style="color: #6b7280; margin: 2px 0; font-size: 13px;">{client.get("firstName", "")} {client.get("lastName", "")}</p>
+                <p style="color: #6b7280; margin: 2px 0; font-size: 13px;">Doc: {client.get("documentNumber", "")}</p>
+                <p style="color: #6b7280; margin: 2px 0; font-size: 13px;">{client.get("email", "")}</p>
+            </div>
+        </div>
+
+        <!-- Items table -->
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+            <thead>
+                <tr style="background: #f3f4f6;">
+                    <th style="padding: 8px 12px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Código</th>
+                    <th style="padding: 8px 12px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Descripción</th>
+                    <th style="padding: 8px 12px; text-align: center; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Cant.</th>
+                    <th style="padding: 8px 12px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Precio Unit.</th>
+                    <th style="padding: 8px 12px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Dto.</th>
+                    <th style="padding: 8px 12px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Subtotal</th>
+                </tr>
+            </thead>
+            <tbody>
+                {items_rows}
+            </tbody>
+        </table>
+
+        <!-- Totals -->
+        <div style="border-top: 2px solid #e5e7eb; padding-top: 16px; margin-bottom: 24px;">
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="text-align: right; padding: 4px 12px; font-size: 14px; color: #4b5563;">Subtotal:</td>
+                    <td style="text-align: right; padding: 4px 0; font-size: 14px; color: #374151; width: 140px;">${totals.get("subtotal", 0):.2f}</td>
+                </tr>
+                <tr>
+                    <td style="text-align: right; padding: 4px 12px; font-size: 14px; color: #4b5563;">Descuento:</td>
+                    <td style="text-align: right; padding: 4px 0; font-size: 14px; color: #dc2626; width: 140px;">${totals.get("discountAmount", 0):.2f}</td>
+                </tr>
+                {"".join(f'''<tr>
+                    <td style="text-align: right; padding: 4px 12px; font-size: 14px; color: #4b5563;">ICE:</td>
+                    <td style="text-align: right; padding: 4px 0; font-size: 14px; color: #374151; width: 140px;">${totals.get("iceAmount", 0):.2f}</td>
+                </tr>''' for _ in [1] if totals.get("iceAmount", 0) > 0)}
+                <tr>
+                    <td style="text-align: right; padding: 4px 12px; font-size: 14px; color: #4b5563;">IVA ({totals.get("taxAmount", 0)  / totals.get("subtotal", 1) * 100:.0f}%):</td>
+                    <td style="text-align: right; padding: 4px 0; font-size: 14px; color: #374151; width: 140px;">${totals.get("taxAmount", 0):.2f}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 12px;"></td>
+                    <td style="border-top: 2px solid #2563eb; padding: 8px 0;"></td>
+                </tr>
+                <tr>
+                    <td style="text-align: right; padding: 8px 12px; font-size: 18px; font-weight: bold; color: #1f2937;">Total:</td>
+                    <td style="text-align: right; padding: 8px 0; font-size: 18px; font-weight: bold; color: #2563eb; width: 140px;">${totals.get("total", 0):.2f}</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- Payment info -->
+        <div style="background: #f9fafb; border-radius: 6px; padding: 16px; margin-bottom: 24px;">
+            <h4 style="color: #374151; margin: 0 0 8px 0; font-size: 14px;">Información de pago</h4>
+            <p style="color: #6b7280; margin: 2px 0; font-size: 13px;">Método: {payment_method}</p>
+            <p style="color: #6b7280; margin: 2px 0; font-size: 13px;">Efectivo: ${payment.get("cashAmount", 0):.2f}</p>
+            {"".join(f'<p style="color: #6b7280; margin: 2px 0; font-size: 13px;">Transferencia: ${payment.get("transferAmount", 0):.2f}</p>' for _ in [1] if payment.get("transferAmount", 0) > 0)}
+            <p style="color: #6b7280; margin: 2px 0; font-size: 13px;">Pagado: <strong>${payment.get("paid", 0):.2f}</strong></p>
+            {"".join(f'<p style="color: #6b7280; margin: 2px 0; font-size: 13px;">Cambio: ${payment.get("change", 0):.2f}</p>' for _ in [1] if payment.get("change", 0) > 0)}
+        </div>
+
+        <!-- Footer -->
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0 16px 0;">
+        <p style="color: #9ca3af; font-size: 12px; text-align: center; margin: 0;">
+            {biz.get("name", "")} — {biz.get("address", "")}<br>
+            Tel: {biz.get("phone", "")} | Email: {biz.get("email", "")}
+        </p>
+    </div>
+</body>
+</html>"""
+
+    text = (
+        f"Factura {inv.get('invoiceNumber', '')} — {biz.get('name', '')}\n\n"
+        f"Cliente: {client.get('firstName', '')} {client.get('lastName', '')}\n"
+        f"Total: ${totals.get('total', 0):.2f}\n\n"
+        f"Gracias por su preferencia."
+    )
+
+    try:
+        success = await send_email(
+            to=email_request.recipientEmail,
+            subject=subject,
+            html=html,
+            text=text,
+        )
+
+        if success:
+            await db[Collections.INVOICES].update_one(
+                {
+                    "_id": ObjectId(email_request.invoiceId),
+                    "tenantId": tenant.tenantId
+                },
+                {"$set": {
+                    "emailDelivery.sent": True,
+                    "emailDelivery.sentAt": datetime.utcnow(),
+                    "emailDelivery.recipient": email_request.recipientEmail,
+                    "status": InvoiceStatus.SENT.value
+                }}
+            )
+            return {
+                "success": True,
+                "message": f"Factura enviada a {email_request.recipientEmail}"
+            }
+        else:
+            raise Exception("send_email returned False")
+
+    except Exception as e:
+        logger.error("Error enviando factura %s a %s: %s", inv.get("invoiceNumber", ""), email_request.recipientEmail, e)
+
+        await db[Collections.INVOICES].update_one(
+            {
+                "_id": ObjectId(email_request.invoiceId),
+                "tenantId": tenant.tenantId
+            },
+            {"$set": {
+                "emailDelivery.sent": False,
+                "emailDelivery.errorMessage": str(e),
+                "status": InvoiceStatus.FAILED.value
+            }}
+        )
+        return {
+            "success": False,
+            "message": f"Error al enviar factura: {str(e)}"
+        }

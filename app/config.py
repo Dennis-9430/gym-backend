@@ -54,10 +54,11 @@ class Settings(BaseSettings):
     ENABLE_DEFAULT_USERS: bool = True   # Crea admin/receptor si no existen
     ENABLE_SCHEDULER: bool = True       # Inicia scheduler de notificaciones
 
-    # SendGrid — Email transaccional (reset password, facturas)
-    # Obtener API key en https://app.sendgrid.com/settings/api_keys
-    SENDGRID_API_KEY: str = ""
-    EMAIL_FROM: str = "Gym Management <noreply@gymmanagement.com>"
+    # Brevo (ex Sendinblue) — Email transaccional (reset password, facturas)
+    # Obtener API key en https://app.brevo.com/settings/api/key
+    BREVO_API_KEY: str = ""
+    EMAIL_FROM: str = "pinzonfabricio9430@gmail.com"
+    EMAIL_FROM_NAME: str = "Gym Management"
     FRONTEND_URL: str = "http://localhost:5173"
 
     # SUPER_ADMIN — Configuración para el superadmin del sistema

@@ -1,4 +1,4 @@
-"""Servicio de email transaccional usando SendGrid."""
+"""Servicio de email transaccional usando Brevo (ex Sendinblue)."""
 
 import logging
 from typing import Optional
@@ -6,23 +6,23 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Inicialización lazy de SendGrid — solo si hay API key configurada
-_sendgrid_available = False
+# Inicialización lazy de Brevo — solo si hay API key configurada
+_brevo_available = False
 
 
-def _init_sendgrid():
-    global _sendgrid_available
-    if settings.SENDGRID_API_KEY:
+def _init_brevo():
+    global _brevo_available
+    if settings.BREVO_API_KEY:
         try:
-            import sendgrid
-            _sendgrid_available = True
-            logger.info("SendGrid inicializado correctamente")
+            import brevo_python
+            _brevo_available = True
+            logger.info("Brevo inicializado correctamente")
         except Exception as e:
-            logger.warning("No se pudo inicializar SendGrid: %s. Los emails se loguearán por consola.", e)
-            _sendgrid_available = False
+            logger.warning("No se pudo inicializar Brevo: %s. Los emails se loguearán por consola.", e)
+            _brevo_available = False
     else:
-        logger.info("SENDGRID_API_KEY no configurada. Los emails se loguearán por consola.")
-        _sendgrid_available = False
+        logger.info("BREVO_API_KEY no configurada. Los emails se loguearán por consola.")
+        _brevo_available = False
 
 
 async def send_email(
@@ -31,37 +31,49 @@ async def send_email(
     html: str,
     text: str = "",
 ) -> bool:
-    """Envía un email transaccional vía SendGrid.
+    """Envía un email transaccional vía Brevo (ex Sendinblue).
     
-    Si SendGrid no está configurado, loguea el contenido por consola (modo dev).
+    Si Brevo no está configurado, loguea el contenido por consola (modo dev).
     
     Returns:
         True si se envió (o logueó) correctamente, False si falló.
     """
-    if not _sendgrid_available:
-        _init_sendgrid()
+    if not _brevo_available:
+        _init_brevo()
 
-    if not _sendgrid_available:
+    if not _brevo_available:
         logger.info("[EMAIL - MODO DEV] Para: %s | Asunto: %s\n%s", to, subject, html)
         return True
 
     try:
-        import sendgrid
-        from sendgrid.helpers.mail import Mail
+        import brevo_python
+        from brevo_python.rest import ApiException
 
-        sg = sendgrid.SendGridAPIClient(settings.SENDGRID_API_KEY)
-        message = Mail(
-            from_email=settings.EMAIL_FROM,
-            to_emails=to,
-            subject=subject,
-            html_content=html,
-            plain_text_content=text if text else None,
+        configuration = brevo_python.Configuration()
+        configuration.api_key["api-key"] = settings.BREVO_API_KEY
+
+        api_instance = brevo_python.TransactionalEmailsApi(
+            brevo_python.ApiClient(configuration)
         )
 
-        response = sg.send(message)
-        logger.info("Email enviado a %s | status_code=%s", to, response.status_code)
+        send_obj = brevo_python.SendSmtpEmail(
+            to=[brevo_python.SendSmtpEmailTo(email=to)],
+            sender=brevo_python.SendSmtpEmailSender(
+                email=settings.EMAIL_FROM,
+                name=settings.EMAIL_FROM_NAME,
+            ),
+            subject=subject,
+            html_content=html,
+            text_content=text or None,
+        )
+
+        result = api_instance.send_transac_email(send_obj)
+        logger.info("Email enviado a %s | message_id=%s", to, result.message_id)
         return True
 
+    except ApiException as e:
+        logger.error("Error Brevo API enviando email a %s: %s", to, e)
+        return False
     except Exception as e:
         logger.error("Error enviando email a %s: %s", to, e)
         return False

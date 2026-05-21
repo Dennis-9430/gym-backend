@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Relacionado con: auth/utils.py
     JWT_SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 horas — sesión dura todo el día laboral
     
     # Cookie HttpOnly — JWT se envía como cookie segura además del body
     # En producción (DEBUG=False), COOKIE_SECURE se fuerza a True automáticamente

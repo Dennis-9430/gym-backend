@@ -425,6 +425,36 @@ async def admin_tenant_payments(
     }
 
 
+# ── Toggle biometric ──────────────────────────────────────────────────────────
+
+
+class BiometricToggleRequest(BaseModel):
+    biometricEnabled: bool
+
+
+@router.put("/tenants/{tenant_id}/biometric")
+async def admin_toggle_biometric(
+    tenant_id: str,
+    data: BiometricToggleRequest,
+    _: UserResponse = Depends(require_super_admin),
+):
+    """Super admin habilita o deshabilita huella biométrica para un tenant."""
+    db = get_database()
+    result = await db[Collections.TENANTS].update_one(
+        {"tenantId": tenant_id},
+        {"$set": {
+            "biometricEnabled": data.biometricEnabled,
+            "updatedAt": datetime.utcnow(),
+        }}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Tenant no encontrado")
+    
+    updated = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+    updated["id"] = str(updated.pop("_id"))
+    return updated
+
+
 # ── SUPER_ADMIN credentials ────────────────────────────────────────────────────
 
 

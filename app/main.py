@@ -19,6 +19,7 @@ from app.routers.notifications import router as notifications_router
 from app.routers.invoices import router as invoices_router
 from app.routers.demo import router as demo_router
 from app.routers.admin import router as admin_router
+from app.routers.fingerprints import router as fingerprints_router
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.plan_protection import PlanProtectionMiddleware
 
@@ -151,6 +152,7 @@ app.include_router(notifications_router)
 app.include_router(invoices_router)
 app.include_router(demo_router)
 app.include_router(admin_router)
+app.include_router(fingerprints_router)
 
 # Rate limiting - 1000 requests por minuto (suficiente para bursts del dashboard SPA)
 app.add_middleware(RateLimitMiddleware, rate_limit=1000)

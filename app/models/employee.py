@@ -52,6 +52,7 @@ class EmployeeCreate(EmployeeBase):
     # Relacionado con: routers/employees.py (create_employee)
     """Employee creation schema"""
     password: Optional[str] = None
+    fingerPrint: bool = False
 
 
 class EmployeeUpdate(BaseModel):
@@ -70,6 +71,7 @@ class EmployeeUpdate(BaseModel):
     password: Optional[str] = None
     role: Optional[EmployeeRole] = None
     status: Optional[EmployeeStatus] = None
+    fingerPrint: Optional[bool] = None
 
 
 class EmployeeResponse(EmployeeBase):
@@ -78,6 +80,7 @@ class EmployeeResponse(EmployeeBase):
     """Employee response schema"""
     id: str
     permissions: List[Permission] = []
+    fingerPrint: bool = False
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
 

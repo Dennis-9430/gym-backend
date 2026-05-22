@@ -63,6 +63,7 @@ class Collections:
     COUNTERS = "counters"
     PASSWORD_RESET_TOKENS = "password_reset_tokens"
     TENANT_PAYMENTS = "tenant_payments"
+    FINGERPRINTS = "fingerprints"
 
 
 def _infer_index_name(keys):
@@ -120,6 +121,7 @@ async def create_indexes():
         (db["notification_configs"], [("tenantId", 1), ("type", 1)], True),
         (db["notification_logs"], [("tenantId", 1), ("clientId", 1), ("sentAt", -1)], False),
         (db[Collections.TENANT_PAYMENTS], [("tenantId", 1), ("createdAt", -1)], False),
+        (db[Collections.FINGERPRINTS], [("tenantId", 1), ("entityType", 1), ("entityId", 1)], True),
     ]
 
     for collection, keys, unique in index_configs:

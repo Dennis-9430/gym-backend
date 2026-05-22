@@ -71,6 +71,7 @@ class TenantUpdate(BaseModel):
     plan: Optional[SubscriptionPlan] = None
     subscriptionStatus: Optional[SubscriptionStatus] = None
     subscriptionEndDate: Optional[datetime] = None
+    biometricEnabled: Optional[bool] = None  # Super admin habilita huella biométrica
 
 
 class TenantResponse(TenantBase):
@@ -87,6 +88,7 @@ class TenantResponse(TenantBase):
     closingHour: str = "22:00"
     wsspReminderDays: int = 3
     wsspEnabled: bool = False
+    biometricEnabled: bool = False  # Super admin toggle para huella biométrica
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
     # Datos del owner para el frontend

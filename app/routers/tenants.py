@@ -1288,3 +1288,58 @@ async def seed_demo_data(tenant_id: str):
             "isSeed": True,
         }
         await db.invoices.insert_one(doc)
+    
+    # ============================================================
+    # 6. ASISTENCIAS (5 registros demo)
+    # ============================================================
+    now = datetime.utcnow()
+    attendance_data = [
+        # Juan Pérez - entró hace 3 horas, todavía en el gym
+        {
+            "clientId": client_ids.get("Juan"),
+            "clientName": "Juan Pérez",
+            "checkIn": now - timedelta(hours=3),
+            "checkOut": None,
+            "date": now.strftime("%Y-%m-%d"),
+        },
+        # Juan Pérez - check-in ayer con checkout completo
+        {
+            "clientId": client_ids.get("Juan"),
+            "clientName": "Juan Pérez",
+            "checkIn": now - timedelta(days=1, hours=4),
+            "checkOut": now - timedelta(days=1, hours=1),
+            "date": (now - timedelta(days=1)).strftime("%Y-%m-%d"),
+        },
+        # María García - entró hace 1 hora
+        {
+            "clientId": client_ids.get("María"),
+            "clientName": "María García",
+            "checkIn": now - timedelta(hours=1),
+            "checkOut": None,
+            "date": now.strftime("%Y-%m-%d"),
+        },
+        # Carlos López - ayer con checkout
+        {
+            "clientId": client_ids.get("Carlos"),
+            "clientName": "Carlos López",
+            "checkIn": now - timedelta(days=1, hours=5),
+            "checkOut": now - timedelta(days=1, hours=2),
+            "date": (now - timedelta(days=1)).strftime("%Y-%m-%d"),
+        },
+        # Ana Martínez - anteayer
+        {
+            "clientId": client_ids.get("Ana"),
+            "clientName": "Ana Martínez",
+            "checkIn": now - timedelta(days=2, hours=6),
+            "checkOut": now - timedelta(days=2, hours=3),
+            "date": (now - timedelta(days=2)).strftime("%Y-%m-%d"),
+        },
+    ]
+    
+    for att in attendance_data:
+        doc = {
+            **att,
+            "tenantId": tenant_id,
+            "isSeed": True,
+        }
+        await db.attendance.insert_one(doc)

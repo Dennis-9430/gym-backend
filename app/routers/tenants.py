@@ -1305,10 +1305,29 @@ async def seed_demo_attendance(tenant_id: str):
     if existing_att:
         return
     
-    # Obtener clientes demo para registrar asistencias
-    clients_cursor = db.clients.find({"tenantId": tenant_id, "isSeed": True})
-    clients = await clients_cursor.to_list(None)
-    client_map = {c["firstName"]: str(c["_id"]) for c in clients}
+    # Crear clientes demo si no existen (para tenants existentes que ya tenían productos)
+    demo_clients_data = [
+        {"firstName": "Juan", "lastName": "Pérez", "documentType": "CEDULA", "documentNumber": "SEED-ATT-001"},
+        {"firstName": "María", "lastName": "García", "documentType": "CEDULA", "documentNumber": "SEED-ATT-002"},
+        {"firstName": "Carlos", "lastName": "López", "documentType": "CEDULA", "documentNumber": "SEED-ATT-003"},
+        {"firstName": "Ana", "lastName": "Martínez", "documentType": "CEDULA", "documentNumber": "SEED-ATT-004"},
+    ]
+    
+    client_map = {}
+    for i, c in enumerate(demo_clients_data, start=1):
+        existing = await db.clients.find_one({"tenantId": tenant_id, "firstName": c["firstName"], "lastName": c["lastName"]})
+        if not existing:
+            doc = {
+                **c,
+                "tenantId": tenant_id,
+                "membership": "Por registrar",
+                "membershipStatus": "NONE",
+                "isSeed": True,
+                "createdAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow(),
+            }
+            await db.clients.insert_one(doc)
+        client_map[c["firstName"]] = i  # Entero simple como clientId
     
     now = datetime.utcnow()
     attendance_data = [
@@ -1320,9 +1339,8 @@ async def seed_demo_attendance(tenant_id: str):
     ]
     
     for att in attendance_data:
-        client_id = client_map.get(att["firstName"])
         doc = {
-            "clientId": client_id,
+            "clientId": client_map.get(att["firstName"], 0),
             "clientName": att["name"],
             "checkIn": att["checkIn"],
             "checkOut": att["checkOut"],

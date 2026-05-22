@@ -921,6 +921,9 @@ async def initialize_tenant_demo():
     # Seed data demo-basic (idempotente: solo crea si no existe)
     await seed_demo_data("demo-basic-001")
     
+    # Attendance seed demo-basic (independiente)
+    await seed_demo_attendance("demo-basic-001")
+    
     # Demo PRO - buscar por tenantId
     existing_pro = await db.tenants.find_one({"tenantId": "demo-pro-001"})
     if not existing_pro:
@@ -968,6 +971,9 @@ async def initialize_tenant_demo():
     
     # Seed data demo-pro (idempotente: solo crea si no existe)
     await seed_demo_data("demo-pro-001")
+    
+    # Attendance seed demo-pro (independiente)
+    await seed_demo_attendance("demo-pro-001")
 
 
 async def create_default_services(tenant_id: str):
@@ -1288,57 +1294,39 @@ async def seed_demo_data(tenant_id: str):
             "isSeed": True,
         }
         await db.invoices.insert_one(doc)
+
+
+async def seed_demo_attendance(tenant_id: str):
+    """Crea registros de asistencia demo. Independiente del seed de productos."""
+    db = get_database()
     
-    # ============================================================
-    # 6. ASISTENCIAS (5 registros demo)
-    # ============================================================
+    # Verificar si ya existen asistencias seed
+    existing_att = await db.attendance.find_one({"tenantId": tenant_id, "isSeed": True})
+    if existing_att:
+        return
+    
+    # Obtener clientes demo para registrar asistencias
+    clients_cursor = db.clients.find({"tenantId": tenant_id, "isSeed": True})
+    clients = await clients_cursor.to_list(None)
+    client_map = {c["firstName"]: str(c["_id"]) for c in clients}
+    
     now = datetime.utcnow()
     attendance_data = [
-        # Juan Pérez - entró hace 3 horas, todavía en el gym
-        {
-            "clientId": client_ids.get("Juan"),
-            "clientName": "Juan Pérez",
-            "checkIn": now - timedelta(hours=3),
-            "checkOut": None,
-            "date": now.strftime("%Y-%m-%d"),
-        },
-        # Juan Pérez - check-in ayer con checkout completo
-        {
-            "clientId": client_ids.get("Juan"),
-            "clientName": "Juan Pérez",
-            "checkIn": now - timedelta(days=1, hours=4),
-            "checkOut": now - timedelta(days=1, hours=1),
-            "date": (now - timedelta(days=1)).strftime("%Y-%m-%d"),
-        },
-        # María García - entró hace 1 hora
-        {
-            "clientId": client_ids.get("María"),
-            "clientName": "María García",
-            "checkIn": now - timedelta(hours=1),
-            "checkOut": None,
-            "date": now.strftime("%Y-%m-%d"),
-        },
-        # Carlos López - ayer con checkout
-        {
-            "clientId": client_ids.get("Carlos"),
-            "clientName": "Carlos López",
-            "checkIn": now - timedelta(days=1, hours=5),
-            "checkOut": now - timedelta(days=1, hours=2),
-            "date": (now - timedelta(days=1)).strftime("%Y-%m-%d"),
-        },
-        # Ana Martínez - anteayer
-        {
-            "clientId": client_ids.get("Ana"),
-            "clientName": "Ana Martínez",
-            "checkIn": now - timedelta(days=2, hours=6),
-            "checkOut": now - timedelta(days=2, hours=3),
-            "date": (now - timedelta(days=2)).strftime("%Y-%m-%d"),
-        },
+        {"firstName": "Juan", "name": "Juan Pérez", "checkIn": now - timedelta(hours=3), "checkOut": None, "date": now.strftime("%Y-%m-%d")},
+        {"firstName": "Juan", "name": "Juan Pérez", "checkIn": now - timedelta(days=1, hours=4), "checkOut": now - timedelta(days=1, hours=1), "date": (now - timedelta(days=1)).strftime("%Y-%m-%d")},
+        {"firstName": "María", "name": "María García", "checkIn": now - timedelta(hours=1), "checkOut": None, "date": now.strftime("%Y-%m-%d")},
+        {"firstName": "Carlos", "name": "Carlos López", "checkIn": now - timedelta(days=1, hours=5), "checkOut": now - timedelta(days=1, hours=2), "date": (now - timedelta(days=1)).strftime("%Y-%m-%d")},
+        {"firstName": "Ana", "name": "Ana Martínez", "checkIn": now - timedelta(days=2, hours=6), "checkOut": now - timedelta(days=2, hours=3), "date": (now - timedelta(days=2)).strftime("%Y-%m-%d")},
     ]
     
     for att in attendance_data:
+        client_id = client_map.get(att["firstName"])
         doc = {
-            **att,
+            "clientId": client_id,
+            "clientName": att["name"],
+            "checkIn": att["checkIn"],
+            "checkOut": att["checkOut"],
+            "date": att["date"],
             "tenantId": tenant_id,
             "isSeed": True,
         }

@@ -20,6 +20,7 @@ from app.models.tenant import (
     PasswordResetConfirm,
     SubscriptionPlan,
     SubscriptionStatus,
+    PaymentMethod,
     slugify,
 )
 from app.models.employee import EmployeeResponse, EmployeeUpdate
@@ -225,6 +226,65 @@ async def register_tenant(data: TenantCreate):
         
         for service_data in default_services:
             await db.services.insert_one(service_data)
+        
+        # ── PAYMENT PROCESSING ─────────────────────────────────────────────────
+        now = datetime.utcnow()
+        plan_prices = {"BASIC": 20.0, "PREMIUM": 30.0}
+        amount = plan_prices.get(data.plan.value, 20.0) * data.paymentMonths
+
+        if data.paymentMethod == PaymentMethod.CARD:
+            # 🟢 STRICT TDD MODE: Card payment stub — always succeeds locally
+            payment_doc = {
+                "tenantId": tenant_id,
+                "plan": data.plan.value,
+                "months": data.paymentMonths,
+                "amount": amount,
+                "currency": "USD",
+                "method": "CARD",
+                "status": "PAID",
+                "source": "CARD_ONLINE",
+                "cardToken": data.cardToken or "stub-local-dev",
+                "notes": "Pago con tarjeta (stub — sin PayPhone real)",
+                "subscriptionStartDate": now,
+                "subscriptionEndDate": now + timedelta(days=30 * data.paymentMonths),
+                "createdAt": now,
+            }
+            await db[Collections.TENANT_PAYMENTS].insert_one(payment_doc)
+            # Activar tenant inmediatamente (stub)
+            await db[Collections.TENANTS].update_one(
+                {"tenantId": tenant_id},
+                {"$set": {
+                    "subscriptionStatus": SubscriptionStatus.ACTIVE,
+                    "subscriptionEndDate": now + timedelta(days=30 * data.paymentMonths),
+                    "updatedAt": now,
+                }}
+            )
+            tenant_data["subscriptionStatus"] = SubscriptionStatus.ACTIVE
+            tenant_data["subscriptionEndDate"] = now + timedelta(days=30 * data.paymentMonths)
+
+        elif data.paymentMethod == PaymentMethod.TRANSFER:
+            # 🟡 Transfer — crear payment PENDING, tenant queda PENDING_PAYMENT
+            payment_doc = {
+                "tenantId": tenant_id,
+                "plan": data.plan.value,
+                "months": data.paymentMonths,
+                "amount": amount,
+                "currency": "USD",
+                "method": "TRANSFER",
+                "status": "PENDING",
+                "source": "TRANSFER_ONLINE",
+                "reference": data.transferReference or "",
+                "receiptUrl": data.receiptUrl or "",
+                "notes": "Pendiente de aprobación por super admin",
+                "subscriptionStartDate": None,
+                "subscriptionEndDate": None,
+                "createdAt": now,
+            }
+            await db[Collections.TENANT_PAYMENTS].insert_one(payment_doc)
+            # Tenant ya está PENDING_PAYMENT (seteado arriba al crear)
+        
+        # Si no hay paymentMethod, queda PENDING_PAYMENT sin payment record
+        # (comportamiento legacy — el admin registra pago manual después)
         
         return TenantResponse(**tenant_data)
         

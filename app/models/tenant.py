@@ -26,7 +26,15 @@ class SubscriptionStatus(str, Enum):
 class PaymentMethod(str, Enum):
     CASH = "CASH"
     TRANSFER = "TRANSFER"
+    CARD = "CARD"
     OTHER = "OTHER"
+
+
+class PaymentStatus(str, Enum):
+    PENDING = "PENDING"
+    PAID = "PAID"
+    REJECTED = "REJECTED"
+    CANCELLED = "CANCELLED"
 
 
 def slugify(text: str) -> str:
@@ -60,6 +68,12 @@ class TenantCreate(TenantBase):
     # Datos del owner
     ownerFirstName: str  # Nombre del owner
     ownerLastName: str   # Apellido del owner
+    # Payment fields (opcional — si no se envía, queda PENDING_PAYMENT)
+    paymentMethod: Optional[PaymentMethod] = None
+    cardToken: Optional[str] = None
+    transferReference: Optional[str] = None
+    receiptUrl: Optional[str] = None
+    paymentMonths: int = 1
 
 
 class TenantUpdate(BaseModel):
@@ -150,4 +164,42 @@ class ManualPaymentResponse(BaseModel):
     registeredBy: Optional[str] = None
     subscriptionStartDate: Optional[datetime] = None
     subscriptionEndDate: Optional[datetime] = None
+    status: Optional[str] = None
+    source: Optional[str] = None
+    receiptUrl: Optional[str] = None
     createdAt: Optional[datetime] = None
+
+
+class RegistrationPayment(BaseModel):
+    """Payment data submitted during tenant registration"""
+    method: PaymentMethod
+    cardToken: Optional[str] = None          # PayPhone token (stub for now)
+    transferReference: Optional[str] = None   # Optional reference/note for transfer
+    receiptUrl: Optional[str] = None          # Uploaded receipt URL
+    months: int = 1                           # Default: 1 month
+
+
+class PendingPaymentResponse(BaseModel):
+    """Pending transfer payment visible to super admin"""
+    id: str
+    tenantId: str
+    tenantName: str
+    tenantEmail: str
+    plan: SubscriptionPlan
+    amount: float
+    currency: str
+    method: PaymentMethod
+    reference: Optional[str] = None
+    receiptUrl: Optional[str] = None
+    status: PaymentStatus
+    notes: Optional[str] = None
+    createdAt: datetime
+    updatedAt: Optional[datetime] = None
+
+
+class ApprovePaymentRequest(BaseModel):
+    notes: Optional[str] = None
+
+
+class RejectPaymentRequest(BaseModel):
+    reason: str

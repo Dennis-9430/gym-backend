@@ -12,8 +12,12 @@ from app.models.tenant import (
     SubscriptionPlan,
     SubscriptionStatus,
     PaymentMethod,
+    PaymentStatus,
     ManualPaymentCreate,
     ManualPaymentResponse,
+    PendingPaymentResponse,
+    ApprovePaymentRequest,
+    RejectPaymentRequest,
     TenantResponse,
 )
 
@@ -521,3 +525,147 @@ async def update_super_admin_credentials(
         result.append("contraseña actualizada")
 
     return {"message": f"Credenciales actualizadas: {', '.join(result)}"}
+
+
+# ── Pending transfers (super admin approval) ─────────────────────────────────
+
+
+@router.get("/payments/pending")
+async def admin_pending_payments(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    _: UserResponse = Depends(require_super_admin),
+):
+    """Listar pagos por transferencia pendientes de aprobación."""
+    db = get_database()
+
+    query = {"method": "TRANSFER", "status": "PENDING"}
+    total = await db[Collections.TENANT_PAYMENTS].count_documents(query)
+    skip = (page - 1) * limit
+    cursor = (
+        await db[Collections.TENANT_PAYMENTS]
+        .find(query)
+        .sort("createdAt", -1)
+        .skip(skip)
+        .limit(limit)
+        .to_list(None)
+    )
+
+    items = []
+    for doc in cursor:
+        doc["id"] = str(doc.pop("_id"))
+        # Fetch tenant name/email for display
+        tenant = await db[Collections.TENANTS].find_one(
+            {"tenantId": doc["tenantId"]},
+            {"businessName": 1, "email": 1},
+        )
+        doc["tenantName"] = tenant.get("businessName", "") if tenant else ""
+        doc["tenantEmail"] = tenant.get("email", "") if tenant else ""
+        items.append(doc)
+
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "limit": limit,
+    }
+
+
+@router.post("/tenants/{tenant_id}/approve-payment")
+async def admin_approve_payment(
+    tenant_id: str,
+    data: ApprovePaymentRequest = ApprovePaymentRequest(notes=""),
+    current_user: UserResponse = Depends(require_super_admin),
+):
+    """Aprobar transferencia pendiente → activa al tenant."""
+    db = get_database()
+
+    tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant no encontrado")
+
+    # Buscar el payment PENDING más reciente
+    pending_payment = (
+        await db[Collections.TENANT_PAYMENTS]
+        .find_one({"tenantId": tenant_id, "method": "TRANSFER", "status": "PENDING"},
+                  sort=[("createdAt", -1)])
+    )
+    if not pending_payment:
+        raise HTTPException(status_code=404, detail="No hay pagos por transferencia pendientes")
+
+    now = datetime.utcnow()
+    months = pending_payment.get("months", 1)
+    end_date = now + timedelta(days=30 * months)
+
+    # Marcar payment como PAID
+    await db[Collections.TENANT_PAYMENTS].update_one(
+        {"_id": pending_payment["_id"]},
+        {"$set": {
+            "status": "PAID",
+            "subscriptionStartDate": now,
+            "subscriptionEndDate": end_date,
+            "approvedBy": current_user.username,
+            "approvedAt": now,
+            "notes": data.notes or pending_payment.get("notes", ""),
+            "updatedAt": now,
+        }}
+    )
+
+    # Activar tenant
+    await db[Collections.TENANTS].update_one(
+        {"tenantId": tenant_id},
+        {"$set": {
+            "subscriptionStatus": SubscriptionStatus.ACTIVE,
+            "plan": pending_payment.get("plan", tenant.get("plan", "BASIC")),
+            "subscriptionEndDate": end_date,
+            "updatedAt": now,
+        }}
+    )
+
+    return {"message": "Pago aprobado y tenant activado", "tenantId": tenant_id}
+
+
+@router.post("/tenants/{tenant_id}/reject-payment")
+async def admin_reject_payment(
+    tenant_id: str,
+    data: RejectPaymentRequest,
+    current_user: UserResponse = Depends(require_super_admin),
+):
+    """Rechazar transferencia pendiente."""
+    db = get_database()
+
+    tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant no encontrado")
+
+    pending_payment = (
+        await db[Collections.TENANT_PAYMENTS]
+        .find_one({"tenantId": tenant_id, "method": "TRANSFER", "status": "PENDING"},
+                  sort=[("createdAt", -1)])
+    )
+    if not pending_payment:
+        raise HTTPException(status_code=404, detail="No hay pagos por transferencia pendientes")
+
+    now = datetime.utcnow()
+
+    # Marcar payment como REJECTED
+    await db[Collections.TENANT_PAYMENTS].update_one(
+        {"_id": pending_payment["_id"]},
+        {"$set": {
+            "status": "REJECTED",
+            "rejectReason": data.reason,
+            "rejectedBy": current_user.username,
+            "rejectedAt": now,
+            "updatedAt": now,
+        }}
+    )
+
+    # Dejar tenant como PENDING_PAYMENT (no cancelar — puede reintentar)
+    await db[Collections.TENANTS].update_one(
+        {"tenantId": tenant_id},
+        {"$set": {
+            "updatedAt": now,
+        }}
+    )
+
+    return {"message": "Pago rechazado", "tenantId": tenant_id}

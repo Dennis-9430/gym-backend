@@ -68,7 +68,7 @@ class CORSMiddleware:
                         "Access-Control-Allow-Methods": (
                             "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT"
                         ),
-                        "Access-Control-Allow-Headers": "*",
+                        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, Accept, Origin",
                         "Access-Control-Max-Age": "600",
                         "Vary": "Origin",
                     },

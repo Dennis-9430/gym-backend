@@ -131,14 +131,13 @@ class Settings(BaseSettings):
                     "Configúralo en el archivo .env o como variable de entorno."
                 )
 
-        # En producción (DEBUG=False), forzamos COOKIE_SECURE=True y COOKIE_SAMESITE="none"
-        # (necesario para cookies cross-origen: frontend Vercel → backend Render)
+        # En producción (DEBUG=False), forzamos COOKIE_SECURE=True y COOKIE_SAMESITE="lax"
+        # Con el proxy de Vercel, las requests son same-origin → SameSite=Lax funciona.
         if not self.DEBUG:
             if not self.COOKIE_SECURE:
                 self.COOKIE_SECURE = True
-            # SameSite=none es requerido para fetch() cross-origen con cookies
-            if self.COOKIE_SAMESITE == "lax":
-                self.COOKIE_SAMESITE = "none"
+            if self.COOKIE_SAMESITE != "lax":
+                self.COOKIE_SAMESITE = "lax"
 
 
 settings = Settings()

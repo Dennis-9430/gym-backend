@@ -1,49 +1,45 @@
 """Helper para manejar JWT en cookies HttpOnly + fallback a Authorization header.
 
-Usa Set-Cookie manual (no Starlette set_cookie) para poder agregar el
-atributo Partitioned (CHIPS), necesario en Chrome 148+ con bloqueo de
-third-party cookies activo."""
+Con el proxy de Vercel (same-origin), usamos SameSite=Lax.
+No se necesita Partitioned ni SameSite=None."""
 
 from typing import Optional
 from datetime import timedelta
-from urllib.parse import quote
 
 from fastapi import Request, Response
 from app.config import settings
 
 
-def _cookie_header(key: str, value: str, max_age: int) -> str:
-    """Construye el header Set-Cookie con Partitioned (CHIPS)."""
-    parts = [f"{key}={quote(value, safe='')}"]
-    parts.append(f"Max-Age={max_age}")
-    parts.append("Path=/")
-    if settings.COOKIE_DOMAIN:
-        parts.append(f"Domain={settings.COOKIE_DOMAIN}")
-    if settings.COOKIE_SECURE:
-        parts.append("Secure")
-    if settings.COOKIE_SAMESITE == "none":
-        parts.append("SameSite=None")
-    else:
-        parts.append(f"SameSite={settings.COOKIE_SAMESITE}")
-    parts.append("HttpOnly")
-    parts.append("Partitioned")
-    return "; ".join(parts)
-
-
 def set_auth_cookie(response: Response, token: str, expires_delta: Optional[timedelta] = None):
-    """Setea el JWT como cookie HttpOnly, Secure, SameSite, Partitioned.
+    """Setea el JWT como cookie HttpOnly, Secure, SameSite=Lax.
 
-    Partitioned (CHIPS) permite que Chrome envíe la cookie cross-site
-    aunque el bloqueo de third-party cookies esté activo.
+    Con el proxy de Vercel, las requests son same-origin,
+    por lo que SameSite=Lax es suficiente y más seguro.
     """
     max_age = int(expires_delta.total_seconds()) if expires_delta else settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
-    response.headers["set-cookie"] = _cookie_header("access_token", token, max_age)
+
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN or None,
+        path="/",
+    )
 
 
 def clear_auth_cookie(response: Response):
     """Elimina la cookie de autenticación (para logout)."""
-    # Max-Age=0 o expires en pasado elimina la cookie
-    response.headers["set-cookie"] = _cookie_header("access_token", "", max_age=0)
+    response.delete_cookie(
+        key="access_token",
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN or None,
+        path="/",
+    )
 
 
 def get_token_from_request(request: Request) -> Optional[str]:

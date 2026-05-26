@@ -98,13 +98,18 @@ def serialize_tenant(doc: dict) -> dict:
     return doc
 
 
+# Whitelist de emails autorizados para registro anticipado
+REGISTRATION_WHITELIST = {"dennichapu940@gmail.com"}
+
+
 @router.post("/register", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
 async def register_tenant(data: TenantCreate):
-    # ⛔ Registro bloqueado temporalmente — próximamente
-    raise HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="Registro en mantenimiento — próximamente habilitado. Usá las cuentas demo para probar el sistema."
-    )
+    # Solo emails whitelisted pueden registrar — early access control
+    if data.email.lower().strip() not in REGISTRATION_WHITELIST:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Registro en desarrollo — solo disponible para correos autorizados."
+        )
 
     # Registro de nuevo tenant (gimnasio) con owner automático
     db = get_database()

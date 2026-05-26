@@ -182,6 +182,19 @@ async def create_client(
     result = await db[Collections.CLIENTS].insert_one(client_doc)
     client_doc["_id"] = str(result.inserted_id)
     
+    # Email de bienvenida en background si tiene email
+    if client_data.email:
+        import asyncio
+        from app.services.email import send_welcome_client_email
+        full_name = f"{client_data.firstName} {client_data.lastName}".strip()
+        asyncio.create_task(
+            send_welcome_client_email(
+                to=client_data.email,
+                client_name=full_name or "Cliente",
+                business_name=tenant.businessName or "Gimnasio",
+            )
+        )
+    
     return serialize_client(client_doc)
 
 

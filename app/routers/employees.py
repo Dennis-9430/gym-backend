@@ -210,6 +210,21 @@ async def create_employee(
             "createdAt": datetime.utcnow()
         })
     
+    # Email de bienvenida en background (solo si tiene credenciales)
+    if employee_data.email and employee_data.password:
+        import asyncio
+        from app.services.email import send_welcome_employee_email
+        full_name = f"{employee_data.firstName} {employee_data.lastName}".strip()
+        asyncio.create_task(
+            send_welcome_employee_email(
+                to=employee_data.email,
+                name=full_name or employee_data.username,
+                username=employee_data.username,
+                password=employee_data.password,
+                business_name=tenant.name or "Gimnasio",
+            )
+        )
+    
     return EmployeeResponse(**serialize_employee(employee_doc))
 
 

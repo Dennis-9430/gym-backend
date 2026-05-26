@@ -1,10 +1,13 @@
 # Admin router — endpoints protegidos para SUPER_ADMIN
 # Relacionado con: routers/tenants.py, models/tenant.py, database.py
 """Admin router — SUPER_ADMIN-only tenant lifecycle and payment management"""
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Query
+
+logger = logging.getLogger(__name__)
 from app.database import get_database, Collections
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse, UserRole
@@ -462,6 +465,11 @@ async def admin_toggle_biometric(
 # ── SUPER_ADMIN credentials ────────────────────────────────────────────────────
 
 
+class DeleteTenantRequest(BaseModel):
+    """Request para eliminar un tenant — requiere contraseña del SUPER_ADMIN."""
+    password: str
+
+
 class UpdateSuperAdminCredentialsRequest(BaseModel):
     """Request para actualizar credenciales del SUPER_ADMIN via API."""
     email: Optional[str] = None
@@ -669,3 +677,78 @@ async def admin_reject_payment(
     )
 
     return {"message": "Pago rechazado", "tenantId": tenant_id}
+
+
+# ── Delete tenant (full data wipe) ─────────────────────────────────────────────
+
+
+@router.delete("/tenants/{tenant_id}")
+async def admin_delete_tenant(
+    tenant_id: str,
+    body: DeleteTenantRequest,
+    current_user: UserResponse = Depends(require_super_admin),
+):
+    """Elimina un tenant y TODOS sus datos de la base de datos.
+    
+    Requiere contraseña del SUPER_ADMIN como confirmación.
+    Esta operación es IRREVERSIBLE.
+    """
+    from app.auth.utils import verify_password
+
+    db = get_database()
+
+    # 1. Verificar que el tenant existe
+    tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant no encontrado")
+
+    # 2. Verificar contraseña del SUPER_ADMIN
+    admin_doc = await db[Collections.USERS].find_one({"username": current_user.username})
+    if not admin_doc:
+        raise HTTPException(status_code=404, detail="SUPER_ADMIN no encontrado en la base de datos")
+    if not verify_password(body.password, admin_doc["password_hash"]):
+        raise HTTPException(status_code=403, detail="Contraseña incorrecta")
+
+    business_name = tenant.get("businessName", "Gimnasio")
+
+    # 3. Eliminar TODOS los datos asociados al tenant
+    filter_query = {"tenantId": tenant_id}
+    
+    deleted_counts = {}
+    
+    # Orden: primero dependencias, después el tenant
+    collections_to_delete = [
+        (Collections.USERS, "usuarios"),
+        (Collections.EMPLOYEES, "empleados"),
+        (Collections.CLIENTS, "clientes"),
+        (Collections.PRODUCTS, "productos"),
+        (Collections.SERVICES, "servicios"),
+        (Collections.SALES, "ventas"),
+        (Collections.INVOICES, "facturas"),
+        (Collections.ATTENDANCE, "asistencias"),
+        (Collections.COUNTERS, "contadores"),
+        (Collections.TENANT_PAYMENTS, "pagos"),
+        (Collections.FINGERPRINTS, "huellas"),
+        (Collections.PASSWORD_RESET_TOKENS, "tokens de recuperación"),
+    ]
+    
+    for collection_name, label in collections_to_delete:
+        result = await db[collection_name].delete_many(filter_query)
+        if result.deleted_count > 0:
+            deleted_counts[label] = result.deleted_count
+    
+    # Eliminar el tenant mismo
+    result = await db[Collections.TENANTS].delete_one(filter_query)
+    deleted_counts["tenant"] = result.deleted_count
+
+    detail = ", ".join(f"{count} {label}" for label, count in deleted_counts.items())
+    
+    logger.info(
+        "SUPER_ADMIN %s eliminó tenant %s (%s): %s",
+        current_user.username, tenant_id, business_name, detail,
+    )
+
+    return {
+        "message": f"Tenant '{business_name}' eliminado permanentemente",
+        "deleted": deleted_counts,
+    }

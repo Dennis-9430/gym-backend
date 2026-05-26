@@ -121,6 +121,42 @@ async def send_password_reset_email(to: str, reset_link: str, business_name: str
     return await send_email(to=to, subject=subject, html=html, text=text)
 
 
+async def send_welcome_owner_email(to: str, owner_name: str, business_name: str) -> bool:
+    """Envía email de bienvenida al owner después de registrar su gimnasio."""
+    subject = f"¡Bienvenido a Gym Management — {business_name}!"
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"></head>
+    <body style="font-family: Arial, sans-serif; padding: 24px; background: #f4f4f5;">
+        <div style="max-width: 480px; margin: 0 auto; background: white; border-radius: 8px; padding: 32px;">
+            <h2 style="color: #1f2937; margin-top: 0;">¡Felicitaciones, {owner_name}!</h2>
+            <p style="color: #4b5563; line-height: 1.6;">
+                Has registrado <strong>{business_name}</strong> exitosamente en Gym Management.
+            </p>
+            <p style="color: #4b5563; line-height: 1.6;">
+                Ya podés iniciar sesión con tu correo electrónico y la contraseña que elegiste
+                para comenzar a gestionar tu gimnasio.
+            </p>
+            <p style="color: #6b7280; font-size: 14px;">
+                Si tenés alguna duda, respondé a este correo.
+            </p>
+            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+            <p style="color: #9ca3af; font-size: 12px;">
+                Gym Management — {business_name}
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+    text = (
+        f"Bienvenido a Gym Management — {business_name}\n\n"
+        f"Has registrado {business_name} exitosamente.\n\n"
+        f"Iniciá sesión con tu correo y contraseña para gestionar tu gimnasio."
+    )
+    return await send_email(to=to, subject=subject, html=html, text=text)
+
+
 async def send_welcome_employee_email(to: str, name: str, username: str, password: str, business_name: str) -> bool:
     """Envía email de bienvenida a un nuevo empleado con sus credenciales."""
     subject = f"Bienvenido a {business_name} — Tus credenciales de acceso"

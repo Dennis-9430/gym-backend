@@ -27,7 +27,7 @@ from app.models.employee import EmployeeResponse, EmployeeUpdate
 from app.auth.utils import verify_password, get_password_hash, create_access_token
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
-from app.services.email import send_password_reset_email
+from app.services.email import send_password_reset_email, send_welcome_owner_email
 from app.services.password_reset import create_reset_token, consume_reset_token
 from app.auth.cookie import set_auth_cookie, clear_auth_cookie
 
@@ -296,6 +296,16 @@ async def register_tenant(data: TenantCreate):
         
         # Si no hay paymentMethod, queda PENDING_PAYMENT sin payment record
         # (comportamiento legacy — el admin registra pago manual después)
+        
+        # Enviar email de bienvenida al owner en background
+        import asyncio
+        asyncio.create_task(
+            send_welcome_owner_email(
+                to=data.email,
+                owner_name=f"{data.ownerFirstName} {data.ownerLastName}",
+                business_name=data.businessName,
+            )
+        )
         
         return TenantResponse(**tenant_data)
         

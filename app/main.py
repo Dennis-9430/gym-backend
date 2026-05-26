@@ -3,7 +3,6 @@
 """FastAPI application entry point"""
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import connect_to_mongodb, close_mongodb_connection
 from app.auth.router import router as auth_router
@@ -22,6 +21,7 @@ from app.routers.admin import router as admin_router
 from app.routers.fingerprints import router as fingerprints_router
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.plan_protection import PlanProtectionMiddleware
+from app.middleware.cors import CORSMiddleware as _CORSHandler
 
 
 @asynccontextmanager
@@ -95,30 +95,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware - orígenes configurables por ALLOWED_ORIGINS
-# SEGURIDAD: En producción, definir ALLOWED_ORIGINS con dominios específicos
-# Ej: ALLOWED_ORIGINS=https://app.gymtuempresa.com,https://gymtuempresa.com
-allowed_origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
-allow_origins_wildcard = "*" in allowed_origins
-if allow_origins_wildcard:
-    # Wildcard: usar origin_regex para poder usar allow_credentials=True
-    # (CORS spec no permite allow_origins=["*"] con credentials)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=".*",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    # Modo producción: orígenes específicos
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=allowed_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# CORS middleware custom — refleja el Origin para permitir allow_credentials=True
+# con cualquier origen. No usa Starlette CORSMiddleware porque no permite
+# allow_origins=["*"] + allow_credentials=True (lo prohibe el spec de CORS).
+# Ver app/middleware/cors.py para los detalles.
+app.add_middleware(_CORSHandler)
 
 
 @app.get("/")

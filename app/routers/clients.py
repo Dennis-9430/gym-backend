@@ -391,4 +391,78 @@ async def assign_membership_with_service(
     
     # SEGURIDAD: read-back también filtra por tenantId
     updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
+    
+    # ──────────────────────────────────────────────────
+    # GENERAR FACTURA + EMAIL por la membresía asignada
+    # ──────────────────────────────────────────────────
+    from app.models.invoice import InvoiceType, InvoiceStatus
+    from app.routers.sales import send_invoice_email_async
+    
+    # Generar número de factura
+    from pymongo import ReturnDocument
+    counter = await db.counters.find_one_and_update(
+        {"tenantId": tenant.tenantId},
+        {"$inc": {"invoiceCount": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER
+    )
+    invoice_count = counter["invoiceCount"]
+    invoice_number = f"MEM-{datetime.now().year}-{invoice_count:06d}"
+    
+    service_price = service.get("price", 0) or 0
+    client_name = existing.get("firstName", "").strip() or "Cliente"
+    client_last = existing.get("lastName", "").strip() or ""
+    client_email = existing.get("email") or ""
+    
+    invoice_doc = {
+        "tenantId": tenant.tenantId,
+        "createdBy": "Sistema",
+        "type": InvoiceType.MEMBERSHIP.value,
+        "invoiceNumber": invoice_number,
+        "business": {
+            "name": tenant.businessName or "Gimnasio",
+            "ruc": tenant.businessRuc or "",
+            "address": tenant.businessAddress or "",
+            "phone": tenant.businessPhone or "",
+            "email": tenant.email or "",
+        },
+        "client": {
+            "firstName": client_name,
+            "lastName": client_last,
+            "documentNumber": existing.get("documentNumber", ""),
+            "email": client_email,
+        },
+        "items": [{
+            "code": service.get("code", ""),
+            "name": service.get("name", "Membresía"),
+            "quantity": 1,
+            "unitPrice": service_price,
+            "discount": 0,
+            "subtotal": service_price,
+        }],
+        "totals": {
+            "subtotal": service_price,
+            "discountAmount": 0,
+            "taxAmount": 0,
+            "iceAmount": 0,
+            "total": service_price,
+        },
+        "payment": {
+            "method": "TRANSFER",
+            "cashAmount": 0,
+            "transferAmount": service_price,
+            "paid": service_price,
+            "change": 0,
+        },
+        "status": InvoiceStatus.GENERATED.value,
+        "createdAt": datetime.utcnow(),
+    }
+    
+    await db[Collections.INVOICES].insert_one(invoice_doc)
+    
+    # Enviar factura por email en background
+    if client_email:
+        import asyncio
+        asyncio.create_task(send_invoice_email_async(db, invoice_doc, client_email))
+    
     return serialize_client(updated)

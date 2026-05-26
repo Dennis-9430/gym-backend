@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # Cookie HttpOnly — JWT se envía como cookie segura además del body
     # En producción (DEBUG=False), COOKIE_SECURE se fuerza a True automáticamente
     COOKIE_SECURE: bool = False
-    COOKIE_SAMESITE: str = "lax"  # lax | strict | none
+    COOKIE_SAMESITE: str = "lax"  # lax | strict | none — se auto-cambia a "none" en producción (ver __init__)
     COOKIE_DOMAIN: str = ""       # Dominio de la cookie (vacío = solo origen actual)
     
     # API - Configuración del servidor
@@ -131,9 +131,14 @@ class Settings(BaseSettings):
                     "Configúralo en el archivo .env o como variable de entorno."
                 )
 
-        # En producción (DEBUG=False), forzamos COOKIE_SECURE=True
-        if not self.DEBUG and not self.COOKIE_SECURE:
-            self.COOKIE_SECURE = True
+        # En producción (DEBUG=False), forzamos COOKIE_SECURE=True y COOKIE_SAMESITE="none"
+        # (necesario para cookies cross-origen: frontend Vercel → backend Render)
+        if not self.DEBUG:
+            if not self.COOKIE_SECURE:
+                self.COOKIE_SECURE = True
+            # SameSite=none es requerido para fetch() cross-origen con cookies
+            if self.COOKIE_SAMESITE == "lax":
+                self.COOKIE_SAMESITE = "none"
 
 
 settings = Settings()

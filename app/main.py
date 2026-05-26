@@ -99,12 +99,14 @@ app = FastAPI(
 # SEGURIDAD: En producción, definir ALLOWED_ORIGINS con dominios específicos
 # Ej: ALLOWED_ORIGINS=https://app.gymtuempresa.com,https://gymtuempresa.com
 allowed_origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
-if allowed_origins == ["*"]:
-    # Modo local: permitir todos (allow_credentials=False cuando es *)
+allow_origins_wildcard = "*" in allowed_origins
+if allow_origins_wildcard:
+    # Wildcard: usar origin_regex para poder usar allow_credentials=True
+    # (CORS spec no permite allow_origins=["*"] con credentials)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
+        allow_origin_regex=".*",
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )

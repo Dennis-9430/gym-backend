@@ -2,7 +2,7 @@
 # Relacionado con: auth/service.py, auth/schemas.py, auth/utils.py
 """Authentication router"""
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from app.auth.schemas import Token, UserResponse, UserCreate, PasswordChange
 from app.auth.service import authenticate_user, create_token, get_user_by_username, initialize_default_users
@@ -86,18 +86,18 @@ async def logout(current_user: UserResponse = Depends(get_current_user)):
 @router.post("/verify-password")
 async def verify_password(
     password_data: dict,
-    authorization: str = Header(None)
+    request: Request,
 ):
     from app.auth.utils import verify_password as verify_pwd, decode_token
     from app.database import get_database, Collections
     
-    if not authorization or not authorization.startswith("Bearer "):
+    token = get_token_from_request(request)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token no proporcionado"
         )
     
-    token = authorization.replace("Bearer ", "")
     payload = decode_token(token)
     
     if not payload:

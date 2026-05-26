@@ -4,7 +4,7 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 from bson import ObjectId
-from fastapi import APIRouter, HTTPException, Depends, status, Header, Response
+from fastapi import APIRouter, HTTPException, Depends, status, Response, Request
 from pydantic import BaseModel
 from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -29,7 +29,7 @@ from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.services.email import send_password_reset_email, send_welcome_owner_email
 from app.services.password_reset import create_reset_token, consume_reset_token
-from app.auth.cookie import set_auth_cookie, clear_auth_cookie
+from app.auth.cookie import set_auth_cookie, clear_auth_cookie, get_token_from_request
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
 
@@ -41,14 +41,13 @@ class TenantInfo(BaseModel):
     status: str = "ACTIVE"
 
 
-async def get_tenant_from_header_tenants(authorization: str = Header(None)) -> TenantInfo:
-    if not authorization or not authorization.startswith("Bearer "):
+async def get_tenant_from_header_tenants(request: Request) -> TenantInfo:
+    token = get_token_from_request(request)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token no proporcionado"
         )
-    
-    token = authorization.replace("Bearer ", "")
     
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
@@ -953,6 +952,7 @@ async def initialize_tenant_demo():
     """Create demo tenant if not exists"""
     from app.models.tenant import SubscriptionPlan, SubscriptionStatus
     from app.models.service import ServiceType
+    demo_password_hash = get_password_hash("demo123456")
     
     # Demo BASIC - buscar por tenantId, no por email
     existing_basic = await db.tenants.find_one({"tenantId": "demo-basic-001"})
@@ -961,7 +961,7 @@ async def initialize_tenant_demo():
             "tenantId": "demo-basic-001",
             "businessCode": "demo-basic",
             "email": "demo-basic@gmail.com",
-            "password": get_password_hash("demoBasic123"),
+            "password": demo_password_hash,
             "businessName": "Gimnasio Demo Basic",
             "businessPhone": "",
             "businessAddress": "",
@@ -990,6 +990,7 @@ async def initialize_tenant_demo():
             ops["isDemo"] = True
         if not existing_basic.get("businessCode"):
             ops["businessCode"] = "demo-basic"
+        ops["password"] = demo_password_hash
         if ops:
             await db.tenants.update_one(
                 {"tenantId": "demo-basic-001"},
@@ -1012,7 +1013,7 @@ async def initialize_tenant_demo():
             "tenantId": "demo-pro-001",
             "businessCode": "demo-premium",
             "email": "demo-pro@gmail.com",
-            "password": get_password_hash("demoPro123"),
+            "password": demo_password_hash,
             "businessName": "Gimnasio Demo Pro",
             "businessPhone": "",
             "businessAddress": "",
@@ -1041,6 +1042,7 @@ async def initialize_tenant_demo():
             ops["isDemo"] = True
         if not existing_pro.get("businessCode"):
             ops["businessCode"] = "demo-premium"
+        ops["password"] = demo_password_hash
         if ops:
             await db.tenants.update_one(
                 {"tenantId": "demo-pro-001"},

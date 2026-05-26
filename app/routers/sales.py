@@ -1,7 +1,7 @@
 # Endpoints para gestión de ventas
 # Relacionado con: models/sale.py, auth/router.py, database.py
 """Sales router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from typing import Optional
 from datetime import datetime
 from bson import ObjectId
@@ -16,6 +16,7 @@ from app.models.invoice import InvoiceStatus, PaymentMethodType
 from app.models.sale import PaymentStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
+from app.auth.cookie import get_token_from_request
 from app.database import get_database, Collections
 from app.utils.demo_protect import check_seed_protected
 from app.config import settings
@@ -43,14 +44,13 @@ def serialize_sale(doc: dict) -> dict:
     return doc
 
 
-async def get_tenant_from_header_sales(authorization: str = Header(None)) -> TenantResponse:
-    if not authorization or not authorization.startswith("Bearer "):
+async def get_tenant_from_header_sales(request: Request) -> TenantResponse:
+    token = get_token_from_request(request)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token no proporcionado"
         )
-    
-    token = authorization.replace("Bearer ", "")
     
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])

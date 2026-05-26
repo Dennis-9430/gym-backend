@@ -2,7 +2,7 @@
 # Relacionado con: models/invoice.py, database.py
 """Invoices API router"""
 import logging
-from fastapi import APIRouter, HTTPException, Depends, Query, Header
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from typing import Optional
 from bson import ObjectId
 from jose import JWTError, jwt
@@ -18,6 +18,7 @@ from app.models.invoice import (
 from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
+from app.auth.cookie import get_token_from_request
 from app.database import get_database, Collections
 from app.config import settings
 from app.services.email import send_email
@@ -27,11 +28,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/invoices", tags=["Invoices"])
 
 
-async def get_tenant_from_header(authorization: str = Header(None)) -> TenantResponse:
-    if not authorization or not authorization.startswith("Bearer "):
+async def get_tenant_from_header(request: Request) -> TenantResponse:
+    token = get_token_from_request(request)
+    if not token:
         raise HTTPException(status_code=401, detail="Token no proporcionado")
-    
-    token = authorization.replace("Bearer ", "")
     
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])

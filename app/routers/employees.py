@@ -3,7 +3,7 @@
 # SEGURIDAD: Todos los endpoints requieren autenticación y filtran por tenantId
 """Employees router"""
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from typing import Optional
 from bson import ObjectId
 from jose import JWTError, jwt
@@ -15,6 +15,7 @@ from app.models.employee import (
 from pydantic import BaseModel
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
+from app.auth.cookie import get_token_from_request
 from app.auth.utils import get_password_hash
 from app.database import get_database, Collections
 from app.config import settings
@@ -30,14 +31,13 @@ class TenantInfo(BaseModel):
     status: str = "ACTIVE"
 
 
-async def get_tenant_from_header_employees(authorization: str = Header(None)) -> TenantInfo:
-    if not authorization or not authorization.startswith("Bearer "):
+async def get_tenant_from_header_employees(request: Request) -> TenantInfo:
+    token = get_token_from_request(request)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token no proporcionado"
         )
-    
-    token = authorization.replace("Bearer ", "")
     
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])

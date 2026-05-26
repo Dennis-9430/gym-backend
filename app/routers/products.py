@@ -1,7 +1,7 @@
 # Endpoints para gestión de productos
 # Relacionado con: models/product.py, auth/router.py, database.py
 """Products router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from typing import Optional
 from bson import ObjectId
 from jose import JWTError, jwt
@@ -11,6 +11,7 @@ from app.models.product import (
 from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
+from app.auth.cookie import get_token_from_request
 from app.database import get_database, Collections
 from app.utils.sanitize import sanitize_search_input
 from app.utils.demo_protect import check_seed_protected
@@ -27,15 +28,13 @@ def serialize_product(doc: dict) -> dict:
     return doc
 
 
-async def get_tenant_from_header_products(authorization: str = Header(None)) -> TenantResponse:
-    """Extrae el tenant del token JWT"""
-    if not authorization or not authorization.startswith("Bearer "):
+async def get_tenant_from_header_products(request: Request) -> TenantResponse:
+    token = get_token_from_request(request)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token no proporcionado"
         )
-    
-    token = authorization.replace("Bearer ", "")
     
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])

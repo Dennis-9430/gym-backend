@@ -1,12 +1,13 @@
 # Endpoints para reportes financieros
 # Relacionado con: database.py, routers/sales.py, models/sale.py
 """Financial reports router"""
-from fastapi import APIRouter, Depends, Query, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
 from typing import Optional
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
+from app.auth.cookie import get_token_from_request
 from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.database import get_database, Collections
 from app.config import settings
@@ -19,14 +20,13 @@ router = APIRouter(prefix="/api/reports", tags=["Reports"])
 # clients, tenants, invoices, employees). Técnicamente debería unificarse en una
 # dependencia común tipo get_current_tenant() en app/auth/deps.py.
 # Pendiente para refactor post-seguridad.
-async def get_tenant_from_header_reports(authorization: str = Header(None)) -> TenantResponse:
-    if not authorization or not authorization.startswith("Bearer "):
+async def get_tenant_from_header_reports(request: Request) -> TenantResponse:
+    token = get_token_from_request(request)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token no proporcionado"
         )
-    
-    token = authorization.replace("Bearer ", "")
     
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])

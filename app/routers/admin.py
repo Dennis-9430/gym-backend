@@ -492,7 +492,11 @@ async def update_super_admin_credentials(
     db = get_database()
 
     # Buscar el documento completo del SUPER_ADMIN
-    admin_doc = await db[Collections.USERS].find_one({"username": current_user.username})
+    admin_doc = await db[Collections.USERS].find_one({
+        "username": current_user.username,
+        "role": UserRole.SUPER_ADMIN,
+        "tenantId": None,
+    })
     if not admin_doc:
         raise HTTPException(status_code=404, detail="SUPER_ADMIN no encontrado en la base de datos")
 
@@ -703,7 +707,11 @@ async def admin_delete_tenant(
         raise HTTPException(status_code=404, detail="Tenant no encontrado")
 
     # 2. Verificar contraseña del SUPER_ADMIN
-    admin_doc = await db[Collections.USERS].find_one({"username": current_user.username})
+    admin_doc = await db[Collections.USERS].find_one({
+        "username": current_user.username,
+        "role": UserRole.SUPER_ADMIN,
+        "tenantId": None,
+    })
     if not admin_doc:
         raise HTTPException(status_code=404, detail="SUPER_ADMIN no encontrado en la base de datos")
     if not verify_password(body.password, admin_doc["password_hash"]):

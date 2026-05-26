@@ -1,7 +1,7 @@
 # Endpoints para gestión de clientes
 # Relacionado con: models/client.py, auth/router.py, database.py
 """Clients router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Header, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from typing import Optional
 from bson import ObjectId
 from jose import JWTError, jwt
@@ -12,6 +12,7 @@ from app.models.client import (
 from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
+from app.auth.cookie import get_token_from_request
 from app.database import get_database, Collections
 from app.utils.sanitize import sanitize_search_input
 from app.utils.demo_protect import check_seed_protected
@@ -35,21 +36,13 @@ def serialize_client(doc: dict) -> dict:
     return doc
 
 
-async def get_tenant_from_header(authorization: str = Header(None)) -> TenantResponse:
-    # SEGURIDAD: Eliminar logs que expongan tokens
-    if not authorization:
+async def get_tenant_from_header(request: Request) -> TenantResponse:
+    token = get_token_from_request(request)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token no proporcionado"
         )
-    
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Formato inválido"
-        )
-    
-    token = authorization.replace("Bearer ", "")
     
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])

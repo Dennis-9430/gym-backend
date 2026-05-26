@@ -4,6 +4,7 @@
 from fastapi import Request, HTTPException, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from app.auth.cookie import get_token_from_request
 from app.utils.plans import PLAN_FEATURES
 import logging
 
@@ -76,15 +77,13 @@ class PlanProtectionMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
     
     def _get_tenant_id_from_token(self, request: Request) -> str | None:
-        """Extrae tenantId del JWT en el header Authorization (fuente única y confiable)"""
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
+        """Extrae tenantId del JWT desde cookie HttpOnly o Authorization header."""
+        token = get_token_from_request(request)
+        if not token:
             return None
         
         from jose import jwt, JWTError
         from app.config import settings
-        
-        token = auth_header.replace("Bearer ", "")
         try:
             payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
             return payload.get("tenantId")

@@ -2,6 +2,7 @@
 # Relacionado con: routers/*, middleware/*
 """Plan and subscription verification utilities"""
 from fastapi import HTTPException, status, Request
+from app.auth.cookie import get_token_from_request
 from app.database import get_database
 from app.models.tenant import SubscriptionStatus
 
@@ -96,10 +97,9 @@ def require_plan_feature(feature: str):
     async def dependency(request: Request):
         tenant_id = None
 
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
+        token = get_token_from_request(request)
+        if token:
             from app.auth.utils import decode_token
-            token = auth_header.replace("Bearer ", "")
             payload = decode_token(token)
             if payload:
                 tenant_id = payload.get("tenantId")

@@ -99,7 +99,7 @@ def serialize_tenant(doc: dict) -> dict:
 
 
 # Whitelist de emails autorizados para registro anticipado
-REGISTRATION_WHITELIST = {"dennichapu940@gmail.com"}
+REGISTRATION_WHITELIST = {"dennischapu94@gmail.com"}
 
 
 @router.post("/register", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)

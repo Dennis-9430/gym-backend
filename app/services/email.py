@@ -14,7 +14,7 @@ def _init_brevo():
     global _brevo_available
     if settings.BREVO_API_KEY:
         try:
-            import brevo_python
+            import sib_api_v3_sdk
             _brevo_available = True
             logger.info("Brevo inicializado correctamente")
         except Exception as e:
@@ -46,19 +46,19 @@ async def send_email(
         return True
 
     try:
-        import brevo_python
-        from brevo_python.rest import ApiException
+        import sib_api_v3_sdk
+        from sib_api_v3_sdk.rest import ApiException
 
-        configuration = brevo_python.Configuration()
+        configuration = sib_api_v3_sdk.Configuration()
         configuration.api_key["api-key"] = settings.BREVO_API_KEY
 
-        api_instance = brevo_python.TransactionalEmailsApi(
-            brevo_python.ApiClient(configuration)
+        api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+            sib_api_v3_sdk.ApiClient(configuration)
         )
 
-        send_obj = brevo_python.SendSmtpEmail(
-            to=[brevo_python.SendSmtpEmailTo(email=to)],
-            sender=brevo_python.SendSmtpEmailSender(
+        send_obj = sib_api_v3_sdk.SendSmtpEmail(
+            to=[sib_api_v3_sdk.SendSmtpEmailTo(email=to)],
+            sender=sib_api_v3_sdk.SendSmtpEmailSender(
                 email=settings.EMAIL_FROM,
                 name=settings.EMAIL_FROM_NAME,
             ),

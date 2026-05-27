@@ -1,7 +1,7 @@
 # Endpoints para gestión de clientes
 # Relacionado con: models/client.py, auth/router.py, database.py
 """Clients router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Body
 from typing import Optional
 from bson import ObjectId
 from jose import JWTError, jwt

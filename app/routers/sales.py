@@ -3,7 +3,7 @@
 """Sales router"""
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import ObjectId
 from jose import JWTError, jwt
 import asyncio
@@ -405,8 +405,15 @@ async def generate_invoice_from_sale(db, sale_doc: dict, tenant_id: str, invoice
         asyncio.create_task(send_invoice_email_async(db, invoice_doc, client_email))
 
 
-async def send_invoice_email_async(db, invoice_doc: dict, email: str):
-    """Envía email de factura en background vía Brevo"""
+async def send_invoice_email_async(db, invoice_doc: dict, email: str,
+                                    client_name: Optional[str] = None,
+                                    is_renewal: bool = False,
+                                    business_name: Optional[str] = None):
+    """Envía email de factura en background vía Brevo.
+    
+    Si se pasa client_name e is_renewal, incluye bloque de bienvenida
+    (primera membresía) o de renovación.
+    """
     try:
         from app.services.email import send_email
 
@@ -416,14 +423,38 @@ async def send_invoice_email_async(db, invoice_doc: dict, email: str):
         totals = inv.get("totals", {})
         payment = inv.get("payment", {})
 
+        # Convertir UTC → Ecuador (UTC-5, sin horario de verano)
         created_at = inv.get("createdAt", datetime.utcnow())
         if hasattr(created_at, "strftime"):
-            created_at_str = created_at.strftime("%d/%m/%Y %H:%M")
+            ecuador_time = created_at - timedelta(hours=5)
+            created_at_str = ecuador_time.strftime("%d/%m/%Y %H:%M")
         else:
             created_at_str = str(created_at)
 
         payment_labels = {"CASH": "Efectivo", "TRANSFER": "Transferencia", "MIXED": "Mixto"}
         payment_method = payment_labels.get(payment.get("method", ""), payment.get("method", ""))
+
+        # Bloques de bienvenida o renovación
+        biz_name = business_name or biz.get("name", "")
+        greeting_block = ""
+        if client_name and not is_renewal:
+            greeting_block = f"""
+        <div style="background: #e8f5e9; border-radius: 8px; padding: 20px; margin-bottom: 24px; border-left: 4px solid #2e7d32;">
+            <h3 style="color: #1b5e20; margin: 0 0 8px 0;">¡Bienvenido, {client_name}!</h3>
+            <p style="color: #2e7d32; margin: 0; font-size: 14px; line-height: 1.5;">
+                Te damos la bienvenida a <strong>{biz_name}</strong>. Adjuntamos la factura
+                correspondiente a tu membresía. ¡Disfrutá de tus entrenamientos!
+            </p>
+        </div>"""
+        elif client_name and is_renewal:
+            greeting_block = f"""
+        <div style="background: #e3f2fd; border-radius: 8px; padding: 20px; margin-bottom: 24px; border-left: 4px solid #1565c0;">
+            <h3 style="color: #0d47a1; margin: 0 0 8px 0;">¡Membresía renovada, {client_name}!</h3>
+            <p style="color: #1565c0; margin: 0; font-size: 14px; line-height: 1.5;">
+                Tu membresía en <strong>{biz_name}</strong> ha sido renovada.
+                Adjuntamos la factura correspondiente. ¡Segí entrenando!
+            </p>
+        </div>"""
 
         items_rows = "".join(
             f"""<tr>
@@ -450,6 +481,8 @@ async def send_invoice_email_async(db, invoice_doc: dict, email: str):
                 {biz.get("address", "")} | Tel: {biz.get("phone", "")} | {biz.get("email", "")}
             </p>
         </div>
+
+        {greeting_block}
 
         <div style="display: flex; justify-content: space-between; margin-bottom: 24px;">
             <div>

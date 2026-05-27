@@ -174,20 +174,8 @@ async def create_client(
     
     result = await db[Collections.CLIENTS].insert_one(client_doc)
     client_doc["_id"] = str(result.inserted_id)
-    
-    # Email de bienvenida en background si tiene email
-    if client_data.email:
-        import asyncio
-        from app.services.email import send_welcome_client_email
-        full_name = f"{client_data.firstName} {client_data.lastName}".strip()
-        asyncio.create_task(
-            send_welcome_client_email(
-                to=client_data.email,
-                client_name=full_name or "Cliente",
-                business_name=tenant.businessName or "Gimnasio",
-            )
-        )
-    
+    # NOTA: el email de bienvenida se envía fusionado con la primera factura
+    # de membresía (ver assign_membership_with_service)
     return serialize_client(client_doc)
 
 
@@ -459,9 +447,17 @@ async def assign_membership_with_service(
     
     await db[Collections.INVOICES].insert_one(invoice_doc)
     
-    # Enviar factura por email en background
+    # Enviar factura por email en background con bloque de bienvenida/renovación
     if client_email:
         import asyncio
-        asyncio.create_task(send_invoice_email_async(db, invoice_doc, client_email))
+        # Detectar si es primera membresía o renovación
+        is_renewal = existing.get("membership") is not None
+        full_name = f"{client_name} {client_last}".strip() or "Cliente"
+        asyncio.create_task(send_invoice_email_async(
+            db, invoice_doc, client_email,
+            client_name=full_name,
+            is_renewal=is_renewal,
+            business_name=tenant.businessName or "Gimnasio"
+        ))
     
     return serialize_client(updated)

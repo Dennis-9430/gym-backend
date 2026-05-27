@@ -1,6 +1,7 @@
 # Router para Tenants (Gimnasios)
 # Relacionado con: models/tenant.py, database.py, main.py
 """Tenant (Gym) API router"""
+import logging
 from datetime import datetime, timedelta
 from uuid import uuid4
 from bson import ObjectId
@@ -30,6 +31,8 @@ from app.auth.schemas import UserResponse
 from app.services.email import send_password_reset_email, send_welcome_owner_email
 from app.services.password_reset import create_reset_token, consume_reset_token
 from app.auth.cookie import set_auth_cookie, clear_auth_cookie, get_token_from_request
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
 
@@ -298,11 +301,18 @@ async def register_tenant(data: TenantCreate):
         
         # Enviar email de bienvenida al owner en background
         import asyncio
-        asyncio.create_task(
+        task = asyncio.create_task(
             send_welcome_owner_email(
                 to=data.email,
                 owner_name=f"{data.ownerFirstName} {data.ownerLastName}",
                 business_name=data.businessName,
+            )
+        )
+        task.add_done_callback(
+            lambda t: logger.info(
+                "Email de bienvenida enviado a %s: %s", data.email, t.result()
+            ) if t.exception() is None else logger.error(
+                "Error enviando email de bienvenida a %s: %s", data.email, t.exception()
             )
         )
         

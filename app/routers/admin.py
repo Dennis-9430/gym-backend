@@ -209,7 +209,11 @@ async def admin_manual_payment(
     data: ManualPaymentCreate,
     current_user: UserResponse = Depends(require_super_admin),
 ):
-    """Registrar pago manual para un tenant — lo reactiva/extiende."""
+    """Registrar pago manual para un tenant — lo reactiva/extiende.
+
+    Si existe un pago PENDING para este tenant (ej: transferencia online),
+    lo actualiza a PAID en vez de crear un duplicado.
+    """
     db = get_database()
 
     tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
@@ -235,26 +239,57 @@ async def admin_manual_payment(
 
     end_date = start_date + timedelta(days=30 * data.months)
 
-    # Insertar registro de pago
-    payment_doc = {
-        "tenantId": tenant_id,
-        "plan": data.plan.value,
-        "months": data.months,
-        "amount": data.amount,
-        "currency": data.currency,
-        "method": data.method.value,
-        "reference": data.reference,
-        "notes": data.notes,
-        "registeredBy": current_user.username,
-        "subscriptionStartDate": start_date,
-        "subscriptionEndDate": end_date,
-        "status": "PAID",          # 🔒 Pagos manuales siempre confirmados
-        "source": "MANUAL",        # 🔑 Diferencia de pagos automáticos futuros
-        "createdAt": now,
-    }
-    payment_result = await db[Collections.TENANT_PAYMENTS].insert_one(payment_doc)
-    payment_doc["id"] = str(payment_result.inserted_id)
-    payment_doc.pop("_id", None)
+    # Buscar si existe un pago PENDING previo (ej: transferencia online)
+    pending_payment = await db[Collections.TENANT_PAYMENTS].find_one(
+        {"tenantId": tenant_id, "status": "PENDING"},
+        sort=[("createdAt", -1)],
+    )
+
+    if pending_payment:
+        # Actualizar el PENDING a PAID en vez de crear duplicado
+        update_fields = {
+            "status": "PAID",
+            "plan": data.plan.value,
+            "months": data.months,
+            "amount": data.amount,
+            "currency": data.currency,
+            "method": data.method.value,
+            "reference": data.reference or "",
+            "notes": data.notes or pending_payment.get("notes", ""),
+            "registeredBy": current_user.username,
+            "approvedBy": current_user.username,
+            "subscriptionStartDate": start_date,
+            "subscriptionEndDate": end_date,
+            "source": "MANUAL",
+            "updatedAt": now,
+        }
+        await db[Collections.TENANT_PAYMENTS].update_one(
+            {"_id": pending_payment["_id"]},
+            {"$set": update_fields},
+        )
+        payment_doc = {**pending_payment, **update_fields}
+        payment_doc["id"] = str(payment_doc.pop("_id"))
+    else:
+        # Insertar nuevo registro de pago
+        payment_doc = {
+            "tenantId": tenant_id,
+            "plan": data.plan.value,
+            "months": data.months,
+            "amount": data.amount,
+            "currency": data.currency,
+            "method": data.method.value,
+            "reference": data.reference,
+            "notes": data.notes,
+            "registeredBy": current_user.username,
+            "subscriptionStartDate": start_date,
+            "subscriptionEndDate": end_date,
+            "status": "PAID",
+            "source": "MANUAL",
+            "createdAt": now,
+        }
+        payment_result = await db[Collections.TENANT_PAYMENTS].insert_one(payment_doc)
+        payment_doc["id"] = str(payment_result.inserted_id)
+        payment_doc.pop("_id", None)
 
     # Actualizar tenant: activar, setear plan y endDate
     await db[Collections.TENANTS].update_one(

@@ -64,6 +64,8 @@ class Collections:
     PASSWORD_RESET_TOKENS = "password_reset_tokens"
     TENANT_PAYMENTS = "tenant_payments"
     FINGERPRINTS = "fingerprints"
+    NOTIFICATION_CONFIGS = "notification_configs"
+    NOTIFICATION_LOGS = "notification_logs"
 
 
 def _infer_index_name(keys):

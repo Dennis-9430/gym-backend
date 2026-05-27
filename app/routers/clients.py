@@ -281,6 +281,9 @@ async def update_membership(
             detail="Client not found"
         )
     
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.CLIENTS, client_id, "modificados")
+    
     from datetime import datetime
     
     update_data = {
@@ -323,6 +326,9 @@ async def assign_membership_with_service(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Cliente no encontrado"
         )
+    
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.CLIENTS, client_id, "modificados")
     
     # Buscar servicio
     if not ObjectId.is_valid(serviceId):

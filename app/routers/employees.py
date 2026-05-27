@@ -18,6 +18,7 @@ from app.auth.schemas import UserResponse
 from app.auth.cookie import get_token_from_request
 from app.auth.utils import get_password_hash
 from app.database import get_database, Collections
+from app.utils.demo_protect import check_seed_protected
 from app.config import settings
 
 
@@ -252,6 +253,9 @@ async def update_employee(
             detail="Empleado no encontrado"
         )
     
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.EMPLOYEES, employee_id, "modificados")
+    
     # PROTECCIÓN: RECEPCIONISTA no puede editar empleados
     if user_role == "RECEPCIONISTA":
         raise HTTPException(
@@ -342,6 +346,9 @@ async def delete_employee(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Empleado no encontrado"
         )
+    
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.EMPLOYEES, employee_id, "eliminados")
     
     # PROTECCIÓN: El OWNER no puede eliminarse a sí mismo
     if existing.get("isOwner", False):

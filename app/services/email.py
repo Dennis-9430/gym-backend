@@ -230,3 +230,44 @@ async def send_welcome_client_email(to: str, client_name: str, business_name: st
         f"Te hemos registrado como cliente. Cualquier consulta, contactanos."
     )
     return await send_email(to=to, subject=subject, html=html, text=text)
+
+
+async def can_send_demo_email(tenant_id: str) -> bool:
+    """Verifica si un tenant demo puede enviar email (máx 5).
+    
+    Retorna True si puede, False si ya alcanzó el límite.
+    Para tenants no demo siempre retorna True (sin límite).
+    """
+    from app.database import get_database, Collections
+    db = get_database()
+    
+    tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+    if not tenant or not tenant.get("isDemo"):
+        return True  # No es demo, sin límite
+    
+    count = tenant.get("emailCount", 0)
+    if count >= 5:
+        logger.info("Límite de 5 emails alcanzado para demo %s", tenant_id)
+        return False
+    
+    # Incrementar contador
+    await db[Collections.TENANTS].update_one(
+        {"tenantId": tenant_id},
+        {"$inc": {"emailCount": 1}}
+    )
+    return True
+
+
+async def track_demo_email(tenant_id: str, success: bool) -> None:
+    """Registra un email enviado desde un tenant demo.
+    
+    Solo incrementa el contador si el envío fue exitoso.
+    """
+    if not success:
+        return
+    from app.database import get_database, Collections
+    db = get_database()
+    await db[Collections.TENANTS].update_one(
+        {"tenantId": tenant_id},
+        {"$inc": {"emailCount": 1}}
+    )

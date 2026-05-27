@@ -45,6 +45,11 @@ async def cleanup_demo_data(current_user: UserResponse = Depends(get_current_use
         Collections.INVOICES,
         Collections.PRODUCTS,
         Collections.ATTENDANCE,
+        Collections.SERVICES,
+        Collections.EMPLOYEES,
+        Collections.NOTIFICATION_CONFIGS,
+        Collections.NOTIFICATION_LOGS,
+        Collections.FINGERPRINTS,
     ]
     
     deleted_counts = {}
@@ -55,6 +60,13 @@ async def cleanup_demo_data(current_user: UserResponse = Depends(get_current_use
             "isSeed": {"$ne": True},
         })
         deleted_counts[collection_name] = result.deleted_count
+    
+    # Limpiar usuarios creados por empleados demo (excluyendo seed)
+    user_result = await db["users"].delete_many({
+        "tenantId": tenant_id,
+        "isSeed": {"$ne": True},
+    })
+    deleted_counts["users"] = user_result.deleted_count
     
     return {
         "message": "Datos demo eliminados correctamente",

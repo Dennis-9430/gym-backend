@@ -299,22 +299,25 @@ async def register_tenant(data: TenantCreate):
         # Si no hay paymentMethod, queda PENDING_PAYMENT sin payment record
         # (comportamiento legacy — el admin registra pago manual después)
         
-        # Enviar email de bienvenida al owner en background
-        import asyncio
-        task = asyncio.create_task(
-            send_welcome_owner_email(
-                to=data.email,
-                owner_name=f"{data.ownerFirstName} {data.ownerLastName}",
-                business_name=data.businessName,
+        # Enviar email de bienvenida al owner en background (solo si no es demo)
+        if data.isDemo:
+            logger.info("Demo tenant registrado — email de bienvenida omitido para %s", data.email)
+        else:
+            import asyncio
+            task = asyncio.create_task(
+                send_welcome_owner_email(
+                    to=data.email,
+                    owner_name=f"{data.ownerFirstName} {data.ownerLastName}",
+                    business_name=data.businessName,
+                )
             )
-        )
-        task.add_done_callback(
-            lambda t: logger.info(
-                "Email de bienvenida enviado a %s: %s", data.email, t.result()
-            ) if t.exception() is None else logger.error(
-                "Error enviando email de bienvenida a %s: %s", data.email, t.exception()
+            task.add_done_callback(
+                lambda t: logger.info(
+                    "Email de bienvenida enviado a %s: %s", data.email, t.result()
+                ) if t.exception() is None else logger.error(
+                    "Error enviando email de bienvenida a %s: %s", data.email, t.exception()
+                )
             )
-        )
         
         return TenantResponse(**tenant_data)
         
@@ -494,12 +497,22 @@ async def login_tenant(data: TenantLoginRequest, response: Response):
             Collections.INVOICES,
             Collections.PRODUCTS,
             Collections.ATTENDANCE,
+            Collections.SERVICES,
+            Collections.EMPLOYEES,
+            Collections.NOTIFICATION_CONFIGS,
+            Collections.NOTIFICATION_LOGS,
+            Collections.FINGERPRINTS,
         ]
         for collection_name in collections_to_clean:
             await db[collection_name].delete_many({
                 "tenantId": tenant["tenantId"],
                 "isSeed": {"$ne": True},
             })
+        # Limpiar usuarios creados por empleados demo (excluyendo seed)
+        await db["users"].delete_many({
+            "tenantId": tenant["tenantId"],
+            "isSeed": {"$ne": True},
+        })
     
     # Crear token JWT — sub es el username del user (o email del tenant legacy)
     token_data = {

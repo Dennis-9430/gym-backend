@@ -250,6 +250,9 @@ async def update_stock(
             detail="Product not found"
         )
     
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.PRODUCTS, product_id, "modificados")
+    
     current_stock = existing.get("stock", 0)
     if operation == "add":
         new_stock = current_stock + quantity

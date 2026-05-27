@@ -611,6 +611,9 @@ async def update_voucher(
     if not ObjectId.is_valid(sale_id):
         raise HTTPException(status_code=400, detail="Invalid sale ID")
     
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.SALES, sale_id, "modificados")
+    
     update_data = {}
     if "voucherCode" in voucher_data:
         update_data["voucherCode"] = voucher_data["voucherCode"]
@@ -647,6 +650,9 @@ async def verify_payment(
     
     if not ObjectId.is_valid(sale_id):
         raise HTTPException(status_code=400, detail="Invalid sale ID")
+    
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.SALES, sale_id, "modificados")
     
     await db[Collections.SALES].update_one(
         {"_id": ObjectId(sale_id), "tenantId": tenant.tenantId},

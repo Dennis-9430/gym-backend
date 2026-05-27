@@ -12,6 +12,7 @@ from app.models.attendance import (
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.database import get_database, Collections
+from app.utils.demo_protect import check_seed_protected
 
 
 router = APIRouter(prefix="/api/attendance", tags=["Attendance"])
@@ -116,6 +117,9 @@ async def check_out(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Already checked out"
         )
+    
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, current_user.tenantId, Collections.ATTENDANCE, attendance_id, "modificados")
     
     now = datetime.utcnow()
     await db[Collections.ATTENDANCE].update_one(

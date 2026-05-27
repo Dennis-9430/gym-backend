@@ -20,6 +20,7 @@ from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.auth.cookie import get_token_from_request
 from app.database import get_database, Collections
+from app.utils.demo_protect import check_seed_protected
 from app.config import settings
 from app.services.email import send_email
 
@@ -197,6 +198,9 @@ async def delete_invoice(
     
     if not ObjectId.is_valid(invoice_id):
         raise HTTPException(status_code=400, detail="ID de factura inválido")
+    
+    # Proteger seed data en cuentas demo
+    await check_seed_protected(db, tenant.tenantId, Collections.INVOICES, invoice_id, "eliminados")
     
     result = await db[Collections.INVOICES].delete_one({
         "_id": ObjectId(invoice_id),

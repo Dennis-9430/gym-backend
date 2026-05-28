@@ -206,7 +206,7 @@ async def admin_get_tenant(
 
     # Resumen de pagos
     payment_pipeline = [
-        {"$match": {"tenantId": tenant_id}},
+        {"$match": {"tenantId": tenant["tenantId"]}},
         {"$group": {
             "_id": None,
             "total_paid": {"$sum": "$amount"},

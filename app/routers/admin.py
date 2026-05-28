@@ -85,9 +85,22 @@ async def admin_dashboard(_: UserResponse = Depends(require_super_admin)):
         .limit(10)
         .to_list(None)
     )
+    # Batch fetch tenant info for recent payments
+    tenant_ids = list(set(p["tenantId"] for p in recent_cursor))
+    tenant_map = {}
+    if tenant_ids:
+        tenants_list = await db[Collections.TENANTS].find(
+            {"tenantId": {"$in": tenant_ids}},
+            {"tenantId": 1, "businessName": 1, "businessCode": 1},
+        ).to_list(None)
+        tenant_map = {t["tenantId"]: t for t in tenants_list}
+
     recent_payments = []
     for p in recent_cursor:
         p["_id"] = str(p["_id"])
+        info = tenant_map.get(p["tenantId"], {})
+        p["businessName"] = info.get("businessName", "")
+        p["businessCode"] = info.get("businessCode", "")
         recent_payments.append(p)
 
     # Tenants por expirar (próximos 7 días)
@@ -167,14 +180,25 @@ async def admin_list_tenants(
 # ── Tenant detail ─────────────────────────────────────────────────────────────
 
 
-@router.get("/tenants/{tenant_id}")
+async def resolve_tenant(db, identifier: str):
+    """Resuelve un tenant por tenantId (UUID) o businessCode (slug)."""
+    tenant = await db[Collections.TENANTS].find_one({"tenantId": identifier})
+    if not tenant:
+        tenant = await db[Collections.TENANTS].find_one({"businessCode": identifier})
+    return tenant
+
+
+@router.get("/tenants/{identifier}")
 async def admin_get_tenant(
-    tenant_id: str,
+    identifier: str,
     _: UserResponse = Depends(require_super_admin),
 ):
-    """Obtener detalle completo de un tenant + resumen de pagos."""
+    """Obtener detalle completo de un tenant + resumen de pagos.
+    
+    Acepta tanto tenantId (UUID) como businessCode (slug).
+    """
     db = get_database()
-    tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+    tenant = await resolve_tenant(db, identifier)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant no encontrado")
 
@@ -428,19 +452,23 @@ async def admin_reactivate_tenant(
 # ── Payment history ───────────────────────────────────────────────────────────
 
 
-@router.get("/tenants/{tenant_id}/payments")
+@router.get("/tenants/{identifier}/payments")
 async def admin_tenant_payments(
-    tenant_id: str,
+    identifier: str,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     _: UserResponse = Depends(require_super_admin),
 ):
-    """Historial de pagos de un tenant, ordenado por createdAt descendente."""
+    """Historial de pagos de un tenant, ordenado por createdAt descendente.
+    
+    Acepta tanto tenantId (UUID) como businessCode (slug).
+    """
     db = get_database()
 
-    tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+    tenant = await resolve_tenant(db, identifier)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant no encontrado")
+    tenant_id = tenant["tenantId"]
 
     query = {"tenantId": tenant_id}
     total = await db[Collections.TENANT_PAYMENTS].count_documents(query)
@@ -598,16 +626,23 @@ async def admin_pending_payments(
         .to_list(None)
     )
 
+    # Batch fetch tenant info
+    tenant_ids = list(set(doc["tenantId"] for doc in cursor))
+    tenant_map = {}
+    if tenant_ids:
+        tenants_list = await db[Collections.TENANTS].find(
+            {"tenantId": {"$in": tenant_ids}},
+            {"tenantId": 1, "businessName": 1, "businessCode": 1, "email": 1},
+        ).to_list(None)
+        tenant_map = {t["tenantId"]: t for t in tenants_list}
+
     items = []
     for doc in cursor:
         doc["id"] = str(doc.pop("_id"))
-        # Fetch tenant name/email for display
-        tenant = await db[Collections.TENANTS].find_one(
-            {"tenantId": doc["tenantId"]},
-            {"businessName": 1, "email": 1},
-        )
-        doc["tenantName"] = tenant.get("businessName", "") if tenant else ""
-        doc["tenantEmail"] = tenant.get("email", "") if tenant else ""
+        info = tenant_map.get(doc["tenantId"], {})
+        doc["tenantName"] = info.get("businessName", "")
+        doc["tenantEmail"] = info.get("email", "")
+        doc["businessCode"] = info.get("businessCode", "")
         items.append(doc)
 
     return {

@@ -379,7 +379,19 @@ async def login_tenant(data: TenantLoginRequest, response: Response):
     if resolved_tenant_id:
         # ===== LOGIN SCOPEADO (con businessCode o tenantId) =====
         # Buscar SOLO dentro del tenant resuelto — nunca global
+        # Soporta login por username (users.username) o por email (employees.email)
         user = await db.users.find_one({"username": login_query, "tenantId": resolved_tenant_id})
+        
+        # Si no se encontró por username, buscar por email en employees
+        if not user:
+            emp_by_email = await db.employees.find_one(
+                {"email": login_query.lower(), "tenantId": resolved_tenant_id},
+                {"_id": 1},
+            )
+            if emp_by_email:
+                user = await db.users.find_one(
+                    {"employeeId": str(emp_by_email["_id"]), "tenantId": resolved_tenant_id},
+                )
         
         if user:
             # Verificar contraseña contra users.password_hash

@@ -117,10 +117,22 @@ async def verify_password(
     db = get_database()
     
     # Buscar en users (fuente única de credenciales) por username + tenantId
+    # Soporta tanto username como email
     query = {"username": username.lower()}
     if tenant_id:
         query["tenantId"] = tenant_id
     user_doc = await db[Collections.USERS].find_one(query)
+    
+    # Si no se encontró por username, buscar por email en employees
+    if not user_doc and tenant_id:
+        emp_by_email = await db[Collections.EMPLOYEES].find_one(
+            {"email": username.lower(), "tenantId": tenant_id},
+            {"_id": 1},
+        )
+        if emp_by_email:
+            user_doc = await db[Collections.USERS].find_one(
+                {"employeeId": str(emp_by_email["_id"]), "tenantId": tenant_id},
+            )
     
     if not user_doc:
         raise HTTPException(

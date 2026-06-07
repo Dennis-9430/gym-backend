@@ -459,10 +459,12 @@ async def login_tenant(data: TenantLoginRequest, response: Response):
                 )
             
             # Asegurar que exista el owner en DB (idempotente — se ejecuta en cada login demo)
-            if resolved_tenant_id == "demo-basic-001":
-                await seed_demo_owner("demo-basic-001", "demo-basic@gmail.com", "Gimnasio Demo Basic")
-            elif resolved_tenant_id == "demo-pro-001":
-                await seed_demo_owner("demo-pro-001", "demo-pro@gmail.com", "Gimnasio Demo Pro")
+            if tenant and tenant.get("isDemo") and data.businessCode:
+                bc = data.businessCode.strip().lower()
+                if bc == "demo-basic":
+                    await seed_demo_owner("demo-basic-001", "demo-basic@gmail.com", "Gimnasio Demo Basic")
+                elif bc == "demo-premium":
+                    await seed_demo_owner("demo-pro-001", "demo-pro@gmail.com", "Gimnasio Demo Pro")
             
             # Crear employee temporal para la respuesta del demo
             employee = {

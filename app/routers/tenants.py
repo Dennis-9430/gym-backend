@@ -375,6 +375,16 @@ async def login_tenant(data: TenantLoginRequest, response: Response):
         tenant_by_code = await db.tenants.find_one({"businessCode": data.businessCode.strip().lower()})
         if tenant_by_code:
             resolved_tenant_id = tenant_by_code["tenantId"]
+        else:
+            # Lazy init: si el businessCode es demo y no existe, crearlo ahora
+            demo_code = data.businessCode.strip().lower()
+            if demo_code in ("demo-basic", "demo-premium"):
+                logger.info("Demo tenant '%s' no existe — inicializando lazy", demo_code)
+                await initialize_tenant_demo()
+                # Reintentar resolución después de inicializar
+                tenant_by_code = await db.tenants.find_one({"businessCode": demo_code})
+                if tenant_by_code:
+                    resolved_tenant_id = tenant_by_code["tenantId"]
     
     if resolved_tenant_id:
         # ===== LOGIN SCOPEADO (con businessCode o tenantId) =====

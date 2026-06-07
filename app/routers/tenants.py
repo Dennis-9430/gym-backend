@@ -1551,3 +1551,11 @@ async def seed_demo_owner(tenant_id: str, email: str, business_name: str):
             "isOwner": True,
             "createdAt": datetime.utcnow(),
         })
+
+
+@router.post("/demo/seed-owner")
+async def debug_seed_demo_owner():
+    """DEBUG: fuerza seed de owners demo"""
+    await seed_demo_owner("demo-basic-001", "demo-basic@gmail.com", "Gimnasio Demo Basic")
+    await seed_demo_owner("demo-pro-001", "demo-pro@gmail.com", "Gimnasio Demo Pro")
+    return {"status": "ok"}

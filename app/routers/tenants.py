@@ -1051,6 +1051,9 @@ async def initialize_tenant_demo():
     # Attendance seed demo-basic (independiente)
     await seed_demo_attendance("demo-basic-001")
     
+    # Owner seed demo-basic (idempotente: crea empleado owner + usuario en users)
+    await seed_demo_owner("demo-basic-001", "demo-basic@gmail.com", "Gimnasio Demo Basic")
+    
     # Demo PRO - buscar por tenantId
     existing_pro = await db.tenants.find_one({"tenantId": "demo-pro-001"})
     if not existing_pro:
@@ -1102,6 +1105,9 @@ async def initialize_tenant_demo():
     
     # Attendance seed demo-pro (independiente)
     await seed_demo_attendance("demo-pro-001")
+    
+    # Owner seed demo-pro (idempotente: crea empleado owner + usuario en users)
+    await seed_demo_owner("demo-pro-001", "demo-pro@gmail.com", "Gimnasio Demo Pro")
 
 
 async def create_default_services(tenant_id: str):
@@ -1477,3 +1483,63 @@ async def seed_demo_attendance(tenant_id: str):
             "isSeed": True,
         }
         await db.attendance.insert_one(doc)
+
+
+async def seed_demo_owner(tenant_id: str, email: str, business_name: str):
+    """Crea el empleado owner y el usuario de login para un tenant demo.
+    Idempotente: si ya existe un owner para este tenant, no hace nada.
+    """
+    db = get_database()
+    
+    # Verificar si ya existe un owner en employees
+    existing_owner = await db.employees.find_one({
+        "tenantId": tenant_id,
+        "isOwner": True,
+    })
+    if existing_owner:
+        # También asegurarse de que exista el usuario correspondiente
+        existing_user = await db.users.find_one({
+            "tenantId": tenant_id,
+            "isOwner": True,
+        })
+        if existing_user:
+            return
+        
+        # Si existe el empleado owner pero no el usuario, crearlo
+        owner_id = str(existing_owner["_id"])
+    else:
+        # Crear empleado owner
+        owner_data = {
+            "tenantId": tenant_id,
+            "username": email,
+            "documentType": "CEDULA",
+            "documentNumber": "",
+            "firstName": business_name,
+            "lastName": "",
+            "email": email,
+            "phone": "",
+            "role": "GERENTE",
+            "status": "ACTIVE",
+            "isOwner": True,
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        }
+        result = await db.employees.insert_one(owner_data)
+        owner_id = str(result.inserted_id)
+    
+    # Crear usuario en users (si no existe)
+    existing_user = await db.users.find_one({
+        "username": email,
+        "tenantId": tenant_id,
+    })
+    if not existing_user:
+        from app.auth.utils import get_password_hash
+        await db.users.insert_one({
+            "username": email.lower(),
+            "password_hash": get_password_hash("demo123456"),
+            "role": "GERENTE",
+            "employeeId": owner_id,
+            "tenantId": tenant_id,
+            "isOwner": True,
+            "createdAt": datetime.utcnow(),
+        })

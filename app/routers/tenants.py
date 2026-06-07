@@ -1553,3 +1553,23 @@ async def seed_demo_owner(tenant_id: str, email: str, business_name: str):
             "isSeed": True,
             "createdAt": datetime.utcnow(),
         })
+
+@router.get("/demo/debug")
+async def debug_demo_state():
+    """DEBUG: verifica estado de los tenants demo"""
+    db = get_database()
+    result = {}
+    for tid in ("demo-basic-001", "demo-pro-001"):
+        tenant = await db.tenants.find_one({"tenantId": tid}, {"_id": 0})
+        emp_count = await db.employees.count_documents({"tenantId": tid})
+        user_count = await db.users.count_documents({"tenantId": tid})
+        owner = await db.employees.find_one({"tenantId": tid, "isOwner": True}, {"_id": 0})
+        result[tid] = {
+            "tenant_exists": tenant is not None,
+            "isDemo": tenant.get("isDemo") if tenant else None,
+            "employee_count": emp_count,
+            "user_count": user_count,
+            "owner_exists": owner is not None,
+            "owner_isSeed": owner.get("isSeed") if owner else None,
+        }
+    return result

@@ -1516,7 +1516,7 @@ async def seed_demo_owner(tenant_id: str, email: str, business_name: str):
         # Si existe el empleado owner pero no el usuario, crearlo
         owner_id = str(existing_owner["_id"])
     else:
-        # Crear empleado owner
+        # Crear empleado owner con isSeed para que NO sea borrado por el cleanup
         owner_data = {
             "tenantId": tenant_id,
             "username": email,
@@ -1529,6 +1529,7 @@ async def seed_demo_owner(tenant_id: str, email: str, business_name: str):
             "role": "GERENTE",
             "status": "ACTIVE",
             "isOwner": True,
+            "isSeed": True,
             "createdAt": datetime.utcnow(),
             "updatedAt": datetime.utcnow(),
         }
@@ -1549,13 +1550,6 @@ async def seed_demo_owner(tenant_id: str, email: str, business_name: str):
             "employeeId": owner_id,
             "tenantId": tenant_id,
             "isOwner": True,
+            "isSeed": True,
             "createdAt": datetime.utcnow(),
         })
-
-
-@router.post("/demo/seed-owner")
-async def debug_seed_demo_owner():
-    """DEBUG: fuerza seed de owners demo"""
-    await seed_demo_owner("demo-basic-001", "demo-basic@gmail.com", "Gimnasio Demo Basic")
-    await seed_demo_owner("demo-pro-001", "demo-pro@gmail.com", "Gimnasio Demo Pro")
-    return {"status": "ok"}

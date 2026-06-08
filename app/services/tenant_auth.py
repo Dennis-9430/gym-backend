@@ -518,29 +518,11 @@ class TenantAuthService:
                 detail="Suscripción inactiva. Contacte al administrador."
             )
 
-        # Auto-cleanup para cuentas demo
+        # Auto-cleanup para cuentas demo — delegado a TenantDemoService
         if tenant.get("isDemo", False):
-            collections_to_clean = [
-                Collections.SALES,
-                Collections.CLIENTS,
-                Collections.INVOICES,
-                Collections.PRODUCTS,
-                Collections.ATTENDANCE,
-                Collections.SERVICES,
-                Collections.EMPLOYEES,
-                Collections.NOTIFICATION_CONFIGS,
-                Collections.NOTIFICATION_LOGS,
-                Collections.FINGERPRINTS,
-            ]
-            for collection_name in collections_to_clean:
-                await self.db[collection_name].delete_many({
-                    "tenantId": tenant["tenantId"],
-                    "isSeed": {"$ne": True},
-                })
-            await self.db["users"].delete_many({
-                "tenantId": tenant["tenantId"],
-                "isSeed": {"$ne": True},
-            })
+            from app.services.tenant_demo import TenantDemoService
+            demo_service = TenantDemoService(self.db)
+            await demo_service.cleanup(tenant["tenantId"])
 
         # Crear token JWT
         username_claim = user["username"] if user else employee.get("email", "")

@@ -615,11 +615,10 @@ class TenantDemoService:
 
 
 async def initialize_tenant_demo():
-    """Backward-compatible wrapper for calls from main.py.
+    """Top-level wrapper for calls from main.py (startup lifecycle).
 
-    Maintains the same import path: from app.routers.tenants import initialize_tenant_demo
-    This allows main.py to keep working while the function is being migrated
-    from tenants.py to TenantDemoService.
+    Import from app.services.tenant_demo:
+        from app.services.tenant_demo import initialize_tenant_demo
     """
     from app.database import get_database
     service = TenantDemoService(get_database())

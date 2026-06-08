@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI):
     
     # Inicializar tenant demo si no existe — gated por ENABLE_DEMO_SEED
     if settings.ENABLE_DEMO_SEED:
-        from app.routers.tenants import initialize_tenant_demo
+        from app.services.tenant_demo import initialize_tenant_demo
         await initialize_tenant_demo()
         logger.info("Tenant demo inicializado")
     

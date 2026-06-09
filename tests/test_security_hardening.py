@@ -616,3 +616,59 @@ class TestCSRFMiddleware:
         )
 
         settings.CSRF_ENABLED = original
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PR #4: Security Headers
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSecurityHeaders:
+    """OWASP security headers must be present on every response."""
+
+    EXPECTED_HEADERS: dict[str, str] = {
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-xss-protection": "1; mode=block",
+        "strict-transport-security": "max-age=31536000; includeSubDomains",
+        "referrer-policy": "strict-origin-when-cross-origin",
+    }
+
+    @pytest.mark.asyncio
+    async def test_get_response_has_all_security_headers(self, client):
+        """GET response must include all standard OWASP security headers."""
+        resp = await client.get("/health")
+        assert resp.status_code == 200
+        for header, expected_value in self.EXPECTED_HEADERS.items():
+            actual = resp.headers.get(header)
+            assert actual == expected_value, (
+                f"Expected {header}={expected_value!r}, got {actual!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_post_response_has_all_security_headers(self, client):
+        """POST response must also include all OWASP security headers."""
+        resp = await client.post("/health")
+        for header, expected_value in self.EXPECTED_HEADERS.items():
+            actual = resp.headers.get(header)
+            assert actual == expected_value, (
+                f"Expected {header}={expected_value!r}, got {actual!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_security_headers_on_404_response(self, client):
+        """Error responses (404) must also include all security headers."""
+        resp = await client.get("/nonexistent-route-for-header-test-99999")
+        assert resp.status_code == 404
+        for header in self.EXPECTED_HEADERS:
+            assert header in resp.headers, (
+                f"Missing {header} on 404 response"
+            )
+            assert len(resp.headers[header]) > 0, (
+                f"Empty {header} on 404 response"
+            )
+
+    def test_middleware_class_defined(self):
+        """SecurityHeadersMiddleware class must exist in the correct module."""
+        from app.middleware.security_headers import SecurityHeadersMiddleware
+        assert SecurityHeadersMiddleware is not None

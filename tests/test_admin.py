@@ -270,7 +270,7 @@ async def test_non_super_admin_gets_403(client, regular_token):
         assert resp.status_code == 403, (
             f"{method} {path} esperaba 403, obtuvo {resp.status_code}: {resp.text}"
         )
-        assert "SUPER_ADMIN" in resp.json()["detail"].upper()
+        assert "SUPER_ADMIN" in resp.json()["error"]["detail"].upper()
 
 
 @pytest.mark.asyncio

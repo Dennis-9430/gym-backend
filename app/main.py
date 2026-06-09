@@ -4,12 +4,27 @@
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Scope, Receive, Send, Message
 from app.config import settings
 from app.database import connect_to_mongodb, close_mongodb_connection
+from app.models.error import APIError, APIErrorDetail, ErrorCodes
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = logging.getLogger("uvicorn")
+
+# ── Status code to error code mapping (Option C) ────────────────────────
+STATUS_CODE_MAP = {
+    400: ErrorCodes.VALIDATION_ERROR,
+    401: ErrorCodes.UNAUTHORIZED,
+    403: ErrorCodes.FORBIDDEN,
+    404: ErrorCodes.NOT_FOUND,
+    409: ErrorCodes.CONFLICT,
+    422: ErrorCodes.VALIDATION_ERROR,
+    429: ErrorCodes.RATE_LIMITED,
+    500: ErrorCodes.INTERNAL_ERROR,
+}
 
 
 class CatchAllErrorMiddleware:
@@ -49,12 +64,13 @@ class CatchAllErrorMiddleware:
             if not response_started:
                 response = JSONResponse(
                     status_code=500,
-                    content={
-                        "error": {
-                            "code": "INTERNAL_ERROR",
-                            "message": "Error interno del servidor",
-                        }
-                    },
+                    content=APIError(
+                        error=APIErrorDetail(
+                            code=ErrorCodes.INTERNAL_ERROR,
+                            detail="Error interno del servidor",
+                            message="Error interno del servidor",
+                        )
+                    ).model_dump(),
                 )
                 await response(scope, receive, send)
 from app.auth.router import router as auth_router
@@ -161,6 +177,37 @@ else:
         redoc_url=None,
         openapi_url=None,
     )
+
+# ── Custom exception handlers ──────────────────────────────────────────
+# Estandarizan todas las respuestas error al formato {error: {code, detail, message}}.
+# Se registran ANTES de los middlewares para interceptar HTTPException a nivel app.
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request, exc):
+    detail = exc.detail
+    code = STATUS_CODE_MAP.get(exc.status_code, ErrorCodes.INTERNAL_ERROR)
+    message = detail if isinstance(detail, str) else str(detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=APIError(
+            error=APIErrorDetail(code=code, detail=message, message=message)
+        ).model_dump(),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=422,
+        content=APIError(
+            error=APIErrorDetail(
+                code=ErrorCodes.VALIDATION_ERROR,
+                detail=str(exc),
+                message="Error de validación"
+            )
+        ).model_dump(),
+    )
+
 
 # CORS middleware custom — refleja el Origin para permitir allow_credentials=True
 # con cualquier origen. No usa Starlette CORSMiddleware porque no permite

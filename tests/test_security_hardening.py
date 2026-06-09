@@ -417,7 +417,7 @@ class TestGlobalExceptionHandler:
             f"Expected 500, got {resp.status_code}: {resp.text}"
         )
         data = resp.json()
-        assert data == {"error": {"code": "INTERNAL_ERROR", "message": "Error interno del servidor"}}, (
+        assert data == {"error": {"code": "INTERNAL_ERROR", "detail": "Error interno del servidor", "message": "Error interno del servidor"}}, (
             f"Unexpected response body: {data}"
         )
 

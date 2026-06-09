@@ -308,7 +308,7 @@ async def test_legacy_auth_login_returns_410(client, seed_data):
     assert resp.status_code == 410, (
         f"Esperaba 410, obtuve {resp.status_code}: {resp.text}"
     )
-    detail = resp.json()["detail"].lower()
+    detail = resp.json()["error"]["detail"].lower()
     assert "api/tenants/login" in detail or "deshabilitado" in detail
 
 

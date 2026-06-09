@@ -393,3 +393,85 @@ class TestAdminSearchReEscape:
         assert data["total"] >= 1, (
             f"Expected at least 1 result for '(Test)' search, got {data['total']}"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PR #2: Error Handling & Info Leaks
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestGlobalExceptionHandler:
+    """Global exception handler must catch unhandled 500s and return generic JSON."""
+
+    @pytest.mark.asyncio
+    async def test_global_handler_returns_generic_json(self, client):
+        """Unhandled exceptions must return 500 with generic error body."""
+        from app.main import app
+
+        # Register a temporary route that raises an unhandled exception
+        @app.get("/test/trigger-500")
+        async def _trigger_error():
+            raise RuntimeError("secret internal detail")
+
+        resp = await client.get("/test/trigger-500")
+        assert resp.status_code == 500, (
+            f"Expected 500, got {resp.status_code}: {resp.text}"
+        )
+        data = resp.json()
+        assert data == {"error": {"code": "INTERNAL_ERROR", "message": "Error interno del servidor"}}, (
+            f"Unexpected response body: {data}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_global_handler_allows_existing_http_exceptions(self, client):
+        """Existing HTTPException handlers must still work (not overridden)."""
+        # /nonexistent-route triggers FastAPI's built-in 404 handler
+        resp = await client.get("/api/nonexistent-route-test-12345")
+        # FastAPI returns 404, not 500
+        assert resp.status_code == 404, (
+            f"Expected 404 for nonexistent route, got {resp.status_code}: {resp.text}"
+        )
+
+
+class TestErrorInfoLeaks:
+    """Error responses must not leak internal exception details."""
+
+    def test_no_str_e_in_api_error_messages(self):
+        """Source code must not expose str(e) in API error response messages.
+
+        This is a static-analysis safety net covering routers and services.
+        str(e) is allowed in:
+        - logger.* calls (internal logging)
+        - DB storage fields (e.g. emailDelivery.errorMessage)
+        - Internal processing (not returned to client)
+        """
+        import re
+        from pathlib import Path
+
+        base = Path("app")
+        files_to_check = list(base.rglob("*.py"))
+
+        # Allowlist patterns where str(e) is acceptable
+        allowed_internal_patterns = [
+            r'logger\.\w+\(.*str\(e\)',       # logger.error(... str(e) ...)
+            r'errorMessage.*str\(e\)',          # DB storage field
+            r'err_str\s*=\s*str\(e\)',          # Internal processing variable
+        ]
+        allowed_regex = re.compile('|'.join(allowed_internal_patterns))
+
+        leaked = []
+        for fpath in files_to_check:
+            rel = fpath.relative_to(base.parent)
+            text = fpath.read_text(encoding="utf-8")
+            for i, line in enumerate(text.splitlines(), 1):
+                stripped = line.strip()
+                if 'str(e)' not in stripped:
+                    continue
+                # Skip if matching allowlist
+                if allowed_regex.search(stripped):
+                    continue
+                leaked.append(f"{rel}:{i}: {stripped}")
+
+        assert len(leaked) == 0, (
+            f"Found {len(leaked)} potential info-leak pattern(s):\n"
+            + "\n".join(leaked)
+        )

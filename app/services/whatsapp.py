@@ -63,7 +63,7 @@ class WhatsAppService:
             
         except Exception as e:
             logger.error(f"Error enviando WhatsApp: {e}")
-            return {"status": "failed", "error": str(e)}
+            return {"status": "failed", "error": "Error interno del servicio de WhatsApp"}
     
     async def send_bulk(self, recipients: list[dict], message: str) -> dict:
         """Enviar mensaje a múltiples destinatarios"""

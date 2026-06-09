@@ -324,9 +324,10 @@ async def register_tenant(data: TenantCreate):
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Error interno en register_tenant: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno: {str(e)}"
+            detail="Error interno del servidor"
         )
 
 

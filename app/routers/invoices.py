@@ -418,5 +418,5 @@ async def send_invoice_email(
         )
         return {
             "success": False,
-            "message": f"Error al enviar factura: {str(e)}"
+            "message": "Error al enviar la factura. Intente nuevamente."
         }

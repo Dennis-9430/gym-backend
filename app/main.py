@@ -1,10 +1,62 @@
 # Punto de entrada de la aplicación FastAPI
 # Relacionado con: config.py, database.py
 """FastAPI application entry point"""
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Scope, Receive, Send, Message
 from app.config import settings
 from app.database import connect_to_mongodb, close_mongodb_connection
+
+logger = logging.getLogger("uvicorn")
+
+
+class CatchAllErrorMiddleware:
+    """ASGI middleware que captura excepciones no manejadas y retorna JSON genérico.
+
+    A diferencia de @app.exception_handler(Exception), este middleware es
+    puramente ASGI (no BaseHTTPMiddleware) y se ubica al final de la cadena
+    de middlewares, atrapando excepciones que escapan incluso de
+    BaseHTTPMiddleware (RateLimitMiddleware, PlanProtectionMiddleware).
+
+    Si los headers ya fueron enviados (response_started=True), solo loguea
+    y suprime la excepción — el handler interno ya envió la respuesta.
+    """
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def _send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send)
+        except Exception as exc:
+            logger.error(
+                "Unhandled error on %s: %s", scope.get("path", ""), exc, exc_info=True
+            )
+            if not response_started:
+                response = JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": {
+                            "code": "INTERNAL_ERROR",
+                            "message": "Error interno del servidor",
+                        }
+                    },
+                )
+                await response(scope, receive, send)
 from app.auth.router import router as auth_router
 from app.routers.employees import router as employees_router
 from app.routers.clients import router as clients_router
@@ -157,6 +209,12 @@ app.add_middleware(RateLimitMiddleware, rate_limit=1000)
 # SEGURIDAD: No afecta uso local (todos los tenants demo tienen subscription ACTIVE)
 app.add_middleware(PlanProtectionMiddleware)
 
+# ── Catch-all error middleware (ASGI puro, NO BaseHTTPMiddleware) ──────────
+# SEGURIDAD: Atrapa TODAS las excepciones no manejadas, incluso las que
+# escapan de BaseHTTPMiddleware (RateLimitMiddleware, PlanProtectionMiddleware).
+# Es el middleware más externo — agregarlo último = ejecutarse primero.
+# HTTPException sigue manejándose por el built-in handler de Starlette.
+app.add_middleware(CatchAllErrorMiddleware)
 
 
 if __name__ == "__main__":

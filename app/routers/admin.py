@@ -2,6 +2,7 @@
 # Relacionado con: routers/tenants.py, models/tenant.py, database.py
 """Admin router — SUPER_ADMIN-only tenant lifecycle and payment management"""
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 from pydantic import BaseModel
@@ -146,7 +147,7 @@ async def admin_list_tenants(
     if plan:
         query["plan"] = plan.upper()
     if search:
-        search_regex = {"$regex": search.strip(), "$options": "i"}
+        search_regex = {"$regex": re.escape(search.strip()), "$options": "i"}
         query["$or"] = [
             {"businessName": search_regex},
             {"email": search_regex},

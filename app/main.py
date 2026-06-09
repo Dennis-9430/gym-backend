@@ -88,12 +88,25 @@ async def lifespan(app: FastAPI):
     await close_mongodb_connection()
 
 
-app = FastAPI(
-    title="Gym Management API",
-    description="Backend API for Gym Management System",
-    version="1.0.0",
-    lifespan=lifespan
-)
+# Swagger docs/redoc/openapi solo en desarrollo (DEBUG=True)
+# En producción, se deshabilitan para reducir superficie de ataque
+if settings.DEBUG:
+    app = FastAPI(
+        title="Gym Management API",
+        description="Backend API for Gym Management System",
+        version="1.0.0",
+        lifespan=lifespan,
+    )
+else:
+    app = FastAPI(
+        title="Gym Management API",
+        description="Backend API for Gym Management System",
+        version="1.0.0",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
 
 # CORS middleware custom — refleja el Origin para permitir allow_credentials=True
 # con cualquier origen. No usa Starlette CORSMiddleware porque no permite

@@ -14,11 +14,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app.config import settings
 
 # Orígenes permitidos (configurables via ALLOWED_ORIGINS)
-_ALLOWED_ORIGINS = [
-    o.strip()
-    for o in settings.ALLOWED_ORIGINS.split(",")
-    if o.strip()
-]
+_ALLOWED_ORIGINS = list(settings.ALLOWED_ORIGINS)
 _ALLOW_WILDCARD = "*" in _ALLOWED_ORIGINS
 
 

@@ -41,10 +41,10 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_WHATSAPP_NUMBER: str = "+14155238886"  # Default Twilio sandbox
     
-    # CORS - Orígenes permitidos (coma separados)
-    # En producción: https://app.gymtuempresa.com,https://gymtuempresa.com
-    # En local: * (por defecto)
-    ALLOWED_ORIGINS: str = "*"
+    # CORS - Orígenes permitidos
+    # En producción: https://gym-management-nine-azure.vercel.app
+    # En local: http://localhost:5173
+    ALLOWED_ORIGINS: list = ["https://gym-management-nine-azure.vercel.app", "http://localhost:5173"]
     
     # Demo - Habilitar datos de ejemplo
     ENABLE_DEMO_SEED: bool = False

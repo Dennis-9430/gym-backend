@@ -65,6 +65,7 @@ class TenantCreate(TenantBase):
     # Incluye datos del owner principal
     password: str = Field(..., min_length=6, max_length=100)
     plan: SubscriptionPlan = SubscriptionPlan.BASIC
+    isDemo: bool = Field(default=False)
     # Datos del owner
     ownerFirstName: str  # Nombre del owner
     ownerLastName: str   # Apellido del owner

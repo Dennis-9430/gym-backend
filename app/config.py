@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     EMAIL_FROM_NAME: str = "Gym Management"
     FRONTEND_URL: str = "http://localhost:5173"
 
+    # CSRF — Double Submit Cookie protection
+    # Warn-only mode by default — set to True to enforce CSRF validation
+    CSRF_ENABLED: bool = False
+
     # SUPER_ADMIN — Configuración para el superadmin del sistema
     SUPER_ADMIN_EMAIL: str = ""
     SUPER_ADMIN_PASSWORD: str = ""

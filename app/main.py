@@ -72,6 +72,7 @@ from app.routers.demo import router as demo_router
 from app.routers.admin import router as admin_router
 from app.routers.fingerprints import router as fingerprints_router
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.csrf import CSRFTokenMiddleware
 from app.middleware.plan_protection import PlanProtectionMiddleware
 from app.middleware.cors import CORSMiddleware as _CORSHandler
 
@@ -204,6 +205,12 @@ app.include_router(fingerprints_router)
 
 # Rate limiting - 1000 requests por minuto (suficiente para bursts del dashboard SPA)
 app.add_middleware(RateLimitMiddleware, rate_limit=1000)
+
+# CSRF protection - Double Submit Cookie (warn-only mode by default)
+# SEGURIDAD: En warn mode, solo loguea advertencias sin bloquear.
+# Setear CSRFT_ENABLED=True en producción SOLO después de que el frontend
+# envíe X-CSRF-Token header en todas las mutaciones.
+app.add_middleware(CSRFTokenMiddleware)
 
 # Plan protection middleware - protege rutas PREMIUM (/api/employees, /api/reports)
 # SEGURIDAD: No afecta uso local (todos los tenants demo tienen subscription ACTIVE)

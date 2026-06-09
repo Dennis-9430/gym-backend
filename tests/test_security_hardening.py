@@ -475,3 +475,144 @@ class TestErrorInfoLeaks:
             f"Found {len(leaked)} potential info-leak pattern(s):\n"
             + "\n".join(leaked)
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PR #3: CSRF Protection
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestCSRFConfig:
+    """CSRF_ENABLED setting must be present in config.py."""
+
+    def test_csrf_enabled_exists(self):
+        """settings must have CSRF_ENABLED attribute."""
+        assert hasattr(settings, "CSRF_ENABLED"), "settings missing CSRF_ENABLED"
+
+    def test_csrf_enabled_default_false(self):
+        """CSRF_ENABLED must default to False (warn-only mode)."""
+        assert settings.CSRF_ENABLED is False, "CSRF_ENABLED should be False by default"
+
+
+class TestCSRFMiddleware:
+    """CSRF middleware must protect mutating endpoints when enabled."""
+
+    CSRF_COOKIE = "csrf_token"
+    CSRF_HEADER = "X-CSRF-Token"
+
+    @pytest.mark.asyncio
+    async def test_csrf_cookie_set_on_get(self, client):
+        """GET response must include csrf_token cookie."""
+        resp = await client.get("/health")
+        assert self.CSRF_COOKIE in resp.cookies, "csrf_token cookie not in response"
+        token = resp.cookies[self.CSRF_COOKIE]
+        assert len(token) == 64, f"Expected 64-char hex token, got {len(token)} chars"
+
+    @pytest.mark.asyncio
+    async def test_warn_mode_allows_post_without_token(self, client):
+        """With CSRF_ENABLED=False, POST without CSRF token must work."""
+        original = settings.CSRF_ENABLED
+        settings.CSRF_ENABLED = False
+
+        @app.post("/test/csrf-warn")
+        async def _warn_ep():
+            return {"ok": True}
+
+        resp = await client.post("/test/csrf-warn")
+        assert resp.status_code == 200, f"Warn mode blocked: {resp.status_code}"
+
+        settings.CSRF_ENABLED = original
+
+    @pytest.mark.asyncio
+    async def test_enforcement_blocks_post_without_token(self, client):
+        """With CSRF_ENABLED=True, POST without CSRF token must return 403."""
+        original = settings.CSRF_ENABLED
+        settings.CSRF_ENABLED = True
+
+        @app.post("/test/csrf-enforce-block")
+        async def _block_ep():
+            return {"ok": True}
+
+        resp = await client.post("/test/csrf-enforce-block")
+        assert resp.status_code == 403, (
+            f"Expected 403, got {resp.status_code}: {resp.text}"
+        )
+
+        settings.CSRF_ENABLED = original
+
+    @pytest.mark.asyncio
+    async def test_enforcement_allows_post_with_valid_token(self, client):
+        """With CSRF_ENABLED=True, POST with matching CSRF token must work."""
+        original = settings.CSRF_ENABLED
+        settings.CSRF_ENABLED = True
+
+        @app.post("/test/csrf-enforce-allow")
+        async def _allow_ep():
+            return {"ok": True}
+
+        # First GET to obtain CSRF cookie
+        resp = await client.get("/test/csrf-enforce-allow")
+        csrf_token = resp.cookies.get(self.CSRF_COOKIE)
+        assert csrf_token is not None, "No CSRF cookie in GET response"
+
+        # POST with matching X-CSRF-Token header
+        resp = await client.post(
+            "/test/csrf-enforce-allow",
+            headers={self.CSRF_HEADER: csrf_token},
+        )
+        assert resp.status_code == 200, (
+            f"Valid CSRF token blocked: {resp.status_code}"
+        )
+
+        settings.CSRF_ENABLED = original
+
+    @pytest.mark.asyncio
+    async def test_enforcement_blocks_post_with_invalid_token(self, client):
+        """With CSRF_ENABLED=True, POST with wrong CSRF token must return 403."""
+        original = settings.CSRF_ENABLED
+        settings.CSRF_ENABLED = True
+
+        @app.post("/test/csrf-enforce-bad")
+        async def _bad_ep():
+            return {"ok": True}
+
+        resp = await client.post(
+            "/test/csrf-enforce-bad",
+            headers={self.CSRF_HEADER: "invalid-token-value"},
+        )
+        assert resp.status_code == 403, (
+            f"Expected 403, got {resp.status_code}"
+        )
+
+        settings.CSRF_ENABLED = original
+
+    @pytest.mark.asyncio
+    async def test_safe_methods_skip_csrf_check(self, client):
+        """GET (safe method) must work without CSRF token with enforcement on."""
+        original = settings.CSRF_ENABLED
+        settings.CSRF_ENABLED = True
+
+        resp = await client.get("/health")
+        assert resp.status_code == 200, (
+            f"GET blocked with enforcement: {resp.status_code}"
+        )
+
+        settings.CSRF_ENABLED = original
+
+    @pytest.mark.asyncio
+    async def test_excluded_prefixes_skip_csrf_check(self, client):
+        """Excluded endpoints (login) must skip CSRF even with enforcement on."""
+        original = settings.CSRF_ENABLED
+        settings.CSRF_ENABLED = True
+
+        # POST to a login path — CSRF should skip it, even if actual auth fails
+        resp = await client.post(
+            "/api/tenants/login",
+            json={"email": "nonexistent@test.com", "password": "test"},
+        )
+        # If CSRF skips correctly, we get a different error (auth failed) not 403
+        assert resp.status_code != 403, (
+            f"Excluded path got CSRF 403: {resp.status_code}"
+        )
+
+        settings.CSRF_ENABLED = original

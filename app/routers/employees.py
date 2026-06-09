@@ -125,6 +125,8 @@ async def get_employees(
     return EmployeeListResponse(
         employees=[EmployeeResponse(**serialize_employee(e)) for e in employees],
         total=total,
+        page=skip // limit + 1,
+        limit=limit,
     )
 
 

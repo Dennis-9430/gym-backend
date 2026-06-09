@@ -43,3 +43,5 @@ class AttendanceListResponse(BaseModel):
     # Relacionado con: routers/attendance.py (list_attendance)
     records: list[AttendanceResponse]
     total: int
+    page: int = 1
+    limit: int = 50

@@ -63,3 +63,5 @@ class ServiceListResponse(BaseModel):
     # Relacionado con: routers/services.py (list_services)
     services: list[ServiceResponse]
     total: int
+    page: int = 1
+    limit: int = 50

@@ -1,7 +1,7 @@
 # Endpoints para gestión de productos
 # Relacionado con: models/product.py, auth/router.py, database.py
 """Products router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response
 from typing import Optional
 from bson import ObjectId
 from jose import JWTError, jwt
@@ -96,7 +96,9 @@ async def list_products(
     
     return {
         "products": [serialize_product(p) for p in products],
-        "total": total
+        "total": total,
+        "page": skip // limit + 1,
+        "limit": limit,
     }
 
 
@@ -224,7 +226,7 @@ async def delete_product(
             detail="Product not found"
         )
     
-    return {"message": "Product deleted successfully"}
+    return Response(status_code=204)
 
 
 @router.put("/{product_id}/stock")

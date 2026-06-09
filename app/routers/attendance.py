@@ -48,7 +48,9 @@ async def list_attendance(
     
     return {
         "records": [serialize_attendance(r) for r in records],
-        "total": total
+        "total": total,
+        "page": skip // limit + 1,
+        "limit": limit,
     }
 
 

@@ -54,3 +54,5 @@ class ProductListResponse(BaseModel):
     # Relacionado con: routers/products.py (list_products)
     products: list[ProductResponse]
     total: int
+    page: int = 1
+    limit: int = 50

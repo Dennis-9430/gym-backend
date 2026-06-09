@@ -2,7 +2,7 @@
 # Relacionado con: models/invoice.py, database.py
 """Invoices API router"""
 import logging
-from fastapi import APIRouter, HTTPException, Depends, Query, Request
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, Response
 from typing import Optional
 from bson import ObjectId
 from jose import JWTError, jwt
@@ -93,7 +93,9 @@ async def list_invoices(
     
     return {
         "invoices": [serialize_invoice(inv) for inv in invoices],
-        "total": total
+        "total": total,
+        "page": skip // limit + 1,
+        "limit": limit,
     }
 
 
@@ -210,7 +212,7 @@ async def delete_invoice(
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     
-    return {"message": "Factura eliminada correctamente"}
+    return Response(status_code=204)
 
 
 @router.post("/send-email", response_model=InvoiceEmailResponse)

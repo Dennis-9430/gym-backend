@@ -116,6 +116,8 @@ class InvoiceResponse(InvoiceBase):
 class InvoiceListResponse(BaseModel):
     invoices: List[InvoiceResponse]
     total: int
+    page: int = 1
+    limit: int = 50
 
 
 class InvoiceEmailRequest(BaseModel):

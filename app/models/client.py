@@ -93,3 +93,5 @@ class ClientListResponse(BaseModel):
     # Relacionado con: routers/clients.py (list_clients)
     clients: list[ClientResponse]
     total: int
+    page: int = 1
+    limit: int = 50

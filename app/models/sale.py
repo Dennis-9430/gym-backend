@@ -104,3 +104,5 @@ class SaleListResponse(BaseModel):
     # Relacionado con: routers/sales.py (list_sales)
     sales: List[SaleResponse]
     total: int
+    page: int = 1
+    limit: int = 50

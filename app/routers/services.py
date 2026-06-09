@@ -1,7 +1,7 @@
 # Endpoints para gestión de servicios/membresías
 # Relacionado con: models/service.py, auth/router.py, database.py
 """Services (Memberships) router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from typing import Optional
 from datetime import datetime
 from bson import ObjectId
@@ -60,7 +60,9 @@ async def list_services(
     
     return {
         "services": [serialize_service(s) for s in services],
-        "total": total
+        "total": total,
+        "page": skip // limit + 1,
+        "limit": limit,
     }
 
 
@@ -210,4 +212,4 @@ async def delete_service(
             detail="Service not found"
         )
     
-    return {"message": "Servicio eliminado correctamente"}
+    return Response(status_code=204)

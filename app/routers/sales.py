@@ -1,7 +1,7 @@
 # Endpoints para gestión de ventas
 # Relacionado con: models/sale.py, auth/router.py, database.py
 """Sales router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response
 from typing import Optional
 from datetime import datetime, timedelta
 from bson import ObjectId
@@ -119,7 +119,9 @@ async def list_sales(
     
     return {
         "sales": [serialize_sale(s) for s in sales],
-        "total": total
+        "total": total,
+        "page": skip // limit + 1,
+        "limit": limit,
     }
 
 
@@ -628,7 +630,7 @@ async def delete_sale(
             detail="Sale not found"
         )
     
-    return {"message": "Sale deleted successfully"}
+    return Response(status_code=204)
 
 
 @router.put("/{sale_id}/voucher")

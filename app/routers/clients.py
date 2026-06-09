@@ -1,7 +1,7 @@
 # Endpoints para gestión de clientes
 # Relacionado con: models/client.py, auth/router.py, database.py
 """Clients router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Body, Response
 from typing import Optional
 from bson import ObjectId
 from jose import JWTError, jwt
@@ -112,7 +112,7 @@ async def list_clients(
         cursor = db[Collections.CLIENTS].find(query).skip(skip).limit(limit)
         clients = await cursor.to_list(length=limit)
         
-        return {"clients": [serialize_client(c) for c in clients], "total": total}
+        return {"clients": [serialize_client(c) for c in clients], "total": total, "page": skip // limit + 1, "limit": limit}
     except Exception as e:
         # SEGURIDAD: log interno, respuesta genérica
         import logging
@@ -241,7 +241,7 @@ async def delete_client(
             detail="Client not found"
         )
     
-    return {"message": "Client deleted successfully"}
+    return Response(status_code=204)
 
 
 @router.put("/{client_id}/membership", response_model=ClientResponse)

@@ -105,3 +105,5 @@ class EmployeeListResponse(BaseModel):
     """Employee list response"""
     employees: List[EmployeeResponse]
     total: int
+    page: int = 1
+    limit: int = 100

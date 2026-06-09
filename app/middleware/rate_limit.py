@@ -1,108 +1,106 @@
-# Middleware de rate limiting simple
-# Relacionado con: main.py
-"""
-Simple rate limiting middleware
-
-╔══════════════════════════════════════════════════════════════════════════╗
-║  PENDIENTE: Rate limit con Redis                                        ║
-╠══════════════════════════════════════════════════════════════════════════╣
-║  Este rate limiter usa almacenamiento en memoria (dict), que no         ║
-║  funciona en multi-instancia ni sobrevive reinicios.                    ║
-║                                                                         ║
-║  Para producción con múltiples workers o instancias:                    ║
-║  1. Instalar redis-py y configurar REDIS_URL en .env                    ║
-║  2. Reemplazar _rate_limit_store por Redis (ej: redis-py + incr/expire) ║
-║  3. Mantener este módulo como fallback local si REDIS_URL no está set   ║
-║                                                                         ║
-║  Referencia: app/middleware/rate_limit.py, app/config.py                ║
-╚══════════════════════════════════════════════════════════════════════════╝
-"""
-import time
-from typing import Dict, Tuple
-from fastapi import Request, HTTPException
+"""Rate limiting middleware with endpoint-specific rules and pluggable storage."""
+import re
+from typing import List, Optional, Pattern, Tuple
+from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import JSONResponse
 
-# Configuración de límites
-# Relacionado con: main.py
-DEFAULT_RATE_LIMIT = 2000  # Requests por minute
-LOGIN_RATE_LIMIT = 10     # Intentos de login por minute
+from app.middleware.rate_limit_store import RateLimitStore, SlidingWindowMemoryStore
 
-# Almacenamiento simple en memoria (en producción usar Redis)
-# Relacionado con: rate_limit_store
-_rate_limit_store: Dict[str, Tuple[int, float]] = {}
+# Singleton store — shared across instances
+_store: Optional[RateLimitStore] = None
+
+
+def get_store() -> RateLimitStore:
+    global _store
+    if _store is None:
+        _store = SlidingWindowMemoryStore()
+    return _store
+
+
+def set_store(store: RateLimitStore):
+    """Override store (for testing)."""
+    global _store
+    _store = store
+
+
+# Default limits
+DEFAULT_RATE_LIMIT = 2000  # requests per minute
+DEFAULT_WINDOW = 60  # seconds
+
+# Endpoint-specific rules
+# Format: (path_pattern, [(identifier_key, limit, window_seconds), ...])
+# identifier_key: "ip" for client IP, or a header name
+RATE_LIMIT_RULES: List[Tuple[Pattern, List[Tuple[str, int, int]]]] = [
+    # Login: 5/min per IP
+    (re.compile(r"^/api/tenants/login$"), [("ip", 5, 60)]),
+    # Forgot password: 3/hour per IP
+    (re.compile(r"^/api/tenants/forgot-password$"), [("ip", 3, 3600)]),
+    # Register: 5/hour per IP
+    (re.compile(r"^/api/tenants/register$"), [("ip", 5, 3600)]),
+    # Reset password: 5/hour per IP
+    (re.compile(r"^/api/tenants/reset-password$"), [("ip", 5, 3600)]),
+]
+
+EXEMPT_PATHS = {"/", "/health", "/docs", "/openapi.json", "/redoc"}
 
 
 def get_client_ip(request: Request) -> str:
-    """Obtiene IP del cliente - soporte para proxies"""
-    # X-Forwarded-For para deployments con proxy
+    """Get client IP — supports X-Forwarded-For for proxied deployments."""
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
 
-def check_rate_limit(
-    client_id: str, 
-    limit: int = DEFAULT_RATE_LIMIT,
-    window: int = 60
-) -> bool:
-    """Verifica rate limit para un cliente
-    
+def get_identifier(request: Request, key: str) -> str:
+    """Get identifier value from request.
+
     Args:
-        client_id: Identificador único del cliente (IP o user)
-        limit: Número máximo de requests
-        window: Ventana de tiempo en segundos
-        
-    Returns:
-        True si está dentro del límite, False si excedido
+        key: "ip" for client IP, or a header name
     """
-    now = time.time()
-    current = _rate_limit_store.get(client_id)
-    
-    if current is None:
-        _rate_limit_store[client_id] = (1, now)
-        return True
-    
-    count, start_time = current
-    
-    # Reset si pasó la ventana de tiempo
-    if now - start_time > window:
-        _rate_limit_store[client_id] = (1, now)
-        return True
-    
-    # Incrementar contador
-    if count < limit:
-        _rate_limit_store[client_id] = (count + 1, start_time)
-        return True
-    
-    return False
+    if key == "ip":
+        return get_client_ip(request)
+    return request.headers.get(key, get_client_ip(request))
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Middleware de rate limiting para FastAPI"""
-    
-    def __init__(self, app, rate_limit: int = DEFAULT_RATE_LIMIT):
-        super().__init__(app)
-        self.rate_limit = rate_limit
-    
+    """Rate limiting middleware with endpoint-specific rules."""
+
     async def dispatch(self, request: Request, call_next):
-        # No aplicar rate limit a OPTIONS (preflight CORS)
         if request.method == "OPTIONS":
             return await call_next(request)
-        
-        # Rutas exemptas (no rate limit)
-        exempt_paths = ["/", "/health", "/docs", "/openapi.json"]
-        if request.url.path in exempt_paths:
+
+        path = request.url.path
+        if path in EXEMPT_PATHS:
             return await call_next(request)
-        
-        # Verificar rate limit
-        client_id = get_client_ip(request)
-        
-        if not check_rate_limit(client_id, self.rate_limit):
-            raise HTTPException(
+
+        store = get_store()
+
+        # Check endpoint-specific rules first
+        for pattern, rules in RATE_LIMIT_RULES:
+            if pattern.match(path):
+                for identifier_key, limit, window in rules:
+                    client_id = get_identifier(request, identifier_key)
+                    rule_key = f"{path}:{identifier_key}:{client_id}"
+                    allowed, count = await store.check_and_increment(rule_key, limit, window)
+                    if not allowed:
+                        return JSONResponse(
+                            status_code=429,
+                            content={"error": {"code": "RATE_LIMITED", "detail": "Demasiadas solicitudes. Intente de nuevo más tarde.", "message": "Demasiadas solicitudes. Intente de nuevo más tarde."}},
+                            headers={"X-RateLimit-Limit": str(limit), "X-RateLimit-Remaining": "0"}
+                        )
+                break  # matched a rule, don't apply default
+
+        # Default rate limit (applies to all other routes)
+        client_ip = get_client_ip(request)
+        allowed, count = await store.check_and_increment(
+            f"default:{client_ip}", DEFAULT_RATE_LIMIT, DEFAULT_WINDOW
+        )
+        if not allowed:
+            return JSONResponse(
                 status_code=429,
-                detail="Too many requests. Please try again later."
+                content={"error": {"code": "RATE_LIMITED", "detail": "Demasiadas solicitudes. Intente de nuevo más tarde.", "message": "Demasiadas solicitudes. Intente de nuevo más tarde."}}
             )
-        
+
         return await call_next(request)

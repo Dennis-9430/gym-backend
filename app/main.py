@@ -251,8 +251,8 @@ app.include_router(demo_router)
 app.include_router(admin_router)
 app.include_router(fingerprints_router)
 
-# Rate limiting - 1000 requests por minuto (suficiente para bursts del dashboard SPA)
-app.add_middleware(RateLimitMiddleware, rate_limit=1000)
+# Rate limiting - 2000 requests/min default, endpoint-specific rules for login/register/etc.
+app.add_middleware(RateLimitMiddleware)
 
 # CSRF protection - Double Submit Cookie (warn-only mode by default)
 # SEGURIDAD: En warn mode, solo loguea advertencias sin bloquear.

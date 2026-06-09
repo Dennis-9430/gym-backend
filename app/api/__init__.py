@@ -1,0 +1,1 @@
+"""API package — shared authentication/authorization dependencies."""

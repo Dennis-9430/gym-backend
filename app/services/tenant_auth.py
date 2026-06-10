@@ -35,6 +35,11 @@ from app.models.tenant import (
 from app.services.email import send_password_reset_email
 from app.services.password_reset import create_reset_token, consume_reset_token
 
+# Forward reference for type hint to avoid circular import
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.services.audit_service import AuditService
+
 logger = logging.getLogger(__name__)
 
 
@@ -320,7 +325,7 @@ class TenantAuthService:
                 detail="Error interno del servidor"
             )
 
-    async def login(self, data: TenantLoginRequest) -> dict:
+    async def login(self, data: TenantLoginRequest, audit_service: Optional['AuditService'] = None) -> dict:
         """Login tenant by username + password.
 
         Returns dict with access_token, tenant, and employee.
@@ -336,6 +341,15 @@ class TenantAuthService:
         })
         if super_admin_user:
             if not verify_password(data.password, super_admin_user["password_hash"]):
+                if audit_service:
+                    from app.models.audit_log import AuditEvents
+                    await audit_service.log_event(
+                        event=AuditEvents.LOGIN_FAILED,
+                        actor_id=login_query,
+                        actor_type="SUPER_ADMIN",
+                        tenant_id="system",
+                        details={"reason": "wrong_password"},
+                    )
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Credenciales incorrectas"
@@ -348,6 +362,14 @@ class TenantAuthService:
                 "isOwner": False,
             }
             access_token = create_access_token(token_data)
+            if audit_service:
+                from app.models.audit_log import AuditEvents
+                await audit_service.log_event(
+                    event=AuditEvents.LOGIN_SUCCESS,
+                    actor_id=login_query,
+                    actor_type="SUPER_ADMIN",
+                    tenant_id="system",
+                )
             return {
                 "access_token": access_token,
                 "tenant": {
@@ -408,6 +430,15 @@ class TenantAuthService:
 
             if user:
                 if not verify_password(data.password, user["password_hash"]):
+                    if audit_service:
+                        from app.models.audit_log import AuditEvents
+                        await audit_service.log_event(
+                            event=AuditEvents.LOGIN_FAILED,
+                            actor_id=login_query,
+                            actor_type=user.get("role", "UNKNOWN"),
+                            tenant_id=resolved_tenant_id,
+                            details={"reason": "wrong_password"},
+                        )
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Credenciales incorrectas"
@@ -446,12 +477,30 @@ class TenantAuthService:
                 # Usuario no encontrado en users → demo legacy (solo tenant.password)
                 tenant = await self.db.tenants.find_one({"tenantId": resolved_tenant_id})
                 if not tenant or not tenant.get("isDemo") or "password" not in tenant:
+                    if audit_service:
+                        from app.models.audit_log import AuditEvents
+                        await audit_service.log_event(
+                            event=AuditEvents.LOGIN_FAILED,
+                            actor_id=login_query,
+                            actor_type="TENANT",
+                            tenant_id=resolved_tenant_id,
+                            details={"reason": "demo_not_found"},
+                        )
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Credenciales incorrectas"
                     )
 
                 if not verify_password(data.password, tenant["password"]):
+                    if audit_service:
+                        from app.models.audit_log import AuditEvents
+                        await audit_service.log_event(
+                            event=AuditEvents.LOGIN_FAILED,
+                            actor_id=login_query,
+                            actor_type="TENANT",
+                            tenant_id=resolved_tenant_id,
+                            details={"reason": "wrong_password"},
+                        )
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Credenciales incorrectas"
@@ -489,12 +538,30 @@ class TenantAuthService:
                 ]
             })
             if not tenant or "password" not in tenant or not tenant.get("isDemo"):
+                if audit_service:
+                    from app.models.audit_log import AuditEvents
+                    await audit_service.log_event(
+                        event=AuditEvents.LOGIN_FAILED,
+                        actor_id=login_query,
+                        actor_type="TENANT",
+                        tenant_id=tenant.get("tenantId", "unknown") if tenant else "unknown",
+                        details={"reason": "no_demo_account"},
+                    )
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Credenciales incorrectas"
                 )
 
             if not verify_password(data.password, tenant["password"]):
+                if audit_service:
+                    from app.models.audit_log import AuditEvents
+                    await audit_service.log_event(
+                        event=AuditEvents.LOGIN_FAILED,
+                        actor_id=login_query,
+                        actor_type="TENANT",
+                        tenant_id=tenant.get("tenantId", "unknown"),
+                        details={"reason": "wrong_password"},
+                    )
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Credenciales incorrectas"
@@ -543,13 +610,23 @@ class TenantAuthService:
         tenant_response["ownerLastName"] = employee.get("lastName", "")
         tenant_response["ownerUsername"] = employee.get("username", "")
 
+        if audit_service:
+            from app.models.audit_log import AuditEvents
+            await audit_service.log_event(
+                event=AuditEvents.LOGIN_SUCCESS,
+                actor_id=username_claim,
+                actor_type=employee["role"],
+                tenant_id=tenant["tenantId"],
+                details={"businessCode": tenant.get("businessCode", "")},
+            )
+
         return {
             "access_token": access_token,
             "tenant": tenant_response,
             "employee": serialize_employee(employee) if employee else None,
         }
 
-    async def forgot_password(self, email: str) -> bool:
+    async def forgot_password(self, email: str, audit_service: Optional['AuditService'] = None) -> bool:
         """Solicitar recuperación de contraseña por email.
 
         Simplified version — sends reset email for the given email.
@@ -558,12 +635,18 @@ class TenantAuthService:
         is handled in the router. This base version handles the SUPER_ADMIN case
         and generic email sending.
         """
-        # This is a simplified version. The full logic with businessCode/tenantId
-        # resolution is kept in the router. We just need to handle the email sending.
-        # The actual implementation in the router calls into this service.
+        if audit_service:
+            from app.models.audit_log import AuditEvents
+            await audit_service.log_event(
+                event=AuditEvents.FORGOT_PASSWORD,
+                actor_id=email,
+                actor_type="TENANT",
+                tenant_id="unknown",
+                details={"email": email},
+            )
         return True
 
-    async def reset_password(self, data: PasswordResetConfirm, db: AsyncIOMotorDatabase) -> bool:
+    async def reset_password(self, data: PasswordResetConfirm, db: AsyncIOMotorDatabase, audit_service: Optional['AuditService'] = None) -> bool:
         """Cambiar contraseña con token de recuperación one-time.
 
         Uses users.password_hash as the single source of truth for credentials.
@@ -599,6 +682,16 @@ class TenantAuthService:
             {"employeeId": employee_id, "tenantId": tenant_id},
             {"$set": {"password_hash": new_password_hash}}
         )
+
+        if audit_service:
+            from app.models.audit_log import AuditEvents
+            await audit_service.log_event(
+                event=AuditEvents.RESET_PASSWORD,
+                actor_id=user.get("username", "unknown"),
+                actor_type=user.get("role", "UNKNOWN"),
+                tenant_id=tenant_id,
+                details={"employee_id": employee_id},
+            )
 
         return True
 

@@ -9,12 +9,15 @@ PURE REFACTOR — logic is identical to the original. Only change is:
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database import Collections
 from app.models.tenant import SubscriptionStatus
+
+if TYPE_CHECKING:
+    from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +212,7 @@ class AdminPaymentService:
             "limit": limit,
         }
 
-    async def approve_payment(self, tenant_id: str, notes: str, admin_username: str) -> dict:
+    async def approve_payment(self, tenant_id: str, notes: str, admin_username: str, audit_service: Optional['AuditService'] = None) -> dict:
         """Aprobar transferencia pendiente → activa al tenant."""
         from fastapi import HTTPException
 
@@ -255,9 +258,27 @@ class AdminPaymentService:
             }}
         )
 
+        if audit_service:
+            from app.models.audit_log import AuditEvents
+            await audit_service.log_event(
+                event=AuditEvents.PAYMENT_APPROVED,
+                actor_id=admin_username,
+                actor_type="SUPER_ADMIN",
+                tenant_id=tenant_id,
+                target_id=tenant_id,
+                target_type="tenant",
+                details={
+                    "businessName": tenant.get("businessName", ""),
+                    "amount": float(pending_payment.get("amount", 0)),
+                    "method": "TRANSFER",
+                    "notes": notes,
+                },
+                ip_address=None,
+            )
+
         return {"message": "Pago aprobado y tenant activado", "tenantId": tenant_id}
 
-    async def reject_payment(self, tenant_id: str, reason: str, admin_username: str) -> dict:
+    async def reject_payment(self, tenant_id: str, reason: str, admin_username: str, audit_service: Optional['AuditService'] = None) -> dict:
         """Rechazar transferencia pendiente."""
         from fastapi import HTTPException
 
@@ -294,5 +315,22 @@ class AdminPaymentService:
                 "updatedAt": now,
             }}
         )
+
+        if audit_service:
+            from app.models.audit_log import AuditEvents
+            await audit_service.log_event(
+                event=AuditEvents.PAYMENT_REJECTED,
+                actor_id=admin_username,
+                actor_type="SUPER_ADMIN",
+                tenant_id=tenant_id,
+                target_id=tenant_id,
+                target_type="tenant",
+                details={
+                    "businessName": tenant.get("businessName", ""),
+                    "amount": float(pending_payment.get("amount", 0)),
+                    "method": "TRANSFER",
+                    "reason": reason,
+                },
+            )
 
         return {"message": "Pago rechazado", "tenantId": tenant_id}

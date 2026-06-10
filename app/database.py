@@ -5,6 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from typing import Optional
 import logging
 from app.config import settings
+from app.models.audit_log import AUDIT_LOGS_COLLECTION
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,9 @@ async def create_indexes():
         (db["notification_logs"], [("tenantId", 1), ("clientId", 1), ("sentAt", -1)], False),
         (db[Collections.TENANT_PAYMENTS], [("tenantId", 1), ("createdAt", -1)], False),
         (db[Collections.FINGERPRINTS], [("tenantId", 1), ("entityType", 1), ("entityId", 1)], True),
+        (db[AUDIT_LOGS_COLLECTION], [("tenantId", 1), ("timestamp", -1)], False),
+        (db[AUDIT_LOGS_COLLECTION], [("event", 1), ("timestamp", -1)], False),
+        (db[AUDIT_LOGS_COLLECTION], [("actor_id", 1), ("timestamp", -1)], False),
     ]
 
     for collection, keys, unique in index_configs:
@@ -179,6 +183,9 @@ REQUIRED_INDEXES = [
     (Collections.PASSWORD_RESET_TOKENS, "token_hash_1", "hash único de reset token"),
     (Collections.PASSWORD_RESET_TOKENS, "tenantId_1_used_1", "reset tokens por tenant"),
     (Collections.TENANT_PAYMENTS, "tenantId_1_createdAt_-1", "payments por tenant ordenado"),
+    (AUDIT_LOGS_COLLECTION, "tenantId_1_timestamp_-1", "audit logs por tenant"),
+    (AUDIT_LOGS_COLLECTION, "event_1_timestamp_-1", "audit logs por evento"),
+    (AUDIT_LOGS_COLLECTION, "actor_id_1_timestamp_-1", "audit logs por actor"),
 ]
 
 

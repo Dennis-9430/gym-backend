@@ -11,12 +11,15 @@ PURE REFACTOR — logic is identical to the original. Only change is:
 import logging
 import re
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database import Collections
 from app.models.tenant import SubscriptionStatus
+
+if TYPE_CHECKING:
+    from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +195,7 @@ class AdminTenantService:
             tenant = await self.db[Collections.TENANTS].find_one({"businessCode": identifier})
         return tenant
 
-    async def suspend(self, tenant_id: str, reason: str) -> dict:
+    async def suspend(self, tenant_id: str, reason: str, audit_service: Optional['AuditService'] = None) -> dict:
         """Suspender un tenant — cambia status a SUSPENDED."""
         from fastapi import HTTPException
 
@@ -208,6 +211,18 @@ class AdminTenantService:
                 "updatedAt": datetime.utcnow(),
             }}
         )
+
+        if audit_service:
+            from app.models.audit_log import AuditEvents
+            await audit_service.log_event(
+                event=AuditEvents.TENANT_SUSPENDED,
+                actor_id="system",
+                actor_type="SUPER_ADMIN",
+                tenant_id=tenant_id,
+                target_id=tenant_id,
+                target_type="tenant",
+                details={"businessName": tenant.get("businessName", ""), "reason": reason},
+            )
 
         updated = await self.db[Collections.TENANTS].find_one({"tenantId": tenant_id})
         updated["id"] = str(updated.pop("_id"))
@@ -245,7 +260,7 @@ class AdminTenantService:
         updated["id"] = str(updated.pop("_id"))
         return updated
 
-    async def reactivate(self, tenant_id: str, reason: str) -> dict:
+    async def reactivate(self, tenant_id: str, reason: str, audit_service: Optional['AuditService'] = None) -> dict:
         """Reactivar un tenant — cambia status a ACTIVE. Solo si está SUSPENDED."""
         from fastapi import HTTPException
 
@@ -269,6 +284,18 @@ class AdminTenantService:
             }}
         )
 
+        if audit_service:
+            from app.models.audit_log import AuditEvents
+            await audit_service.log_event(
+                event=AuditEvents.TENANT_REACTIVATED,
+                actor_id="system",
+                actor_type="SUPER_ADMIN",
+                tenant_id=tenant_id,
+                target_id=tenant_id,
+                target_type="tenant",
+                details={"businessName": tenant.get("businessName", ""), "reason": reason},
+            )
+
         updated = await self.db[Collections.TENANTS].find_one({"tenantId": tenant_id})
         updated["id"] = str(updated.pop("_id"))
         return updated
@@ -291,7 +318,7 @@ class AdminTenantService:
         updated["id"] = str(updated.pop("_id"))
         return updated
 
-    async def delete_tenant(self, tenant_id: str) -> dict:
+    async def delete_tenant(self, tenant_id: str, audit_service: Optional['AuditService'] = None) -> dict:
         """Elimina un tenant y TODOS sus datos de la base de datos.
         Password verification is handled by the router — this receives tenant_id only.
         """
@@ -333,6 +360,18 @@ class AdminTenantService:
         deleted_counts["tenant"] = result.deleted_count
 
         detail = ", ".join(f"{count} {label}" for label, count in deleted_counts.items())
+
+        if audit_service:
+            from app.models.audit_log import AuditEvents
+            await audit_service.log_event(
+                event=AuditEvents.TENANT_DELETED,
+                actor_id="system",
+                actor_type="SUPER_ADMIN",
+                tenant_id=tenant_id,
+                target_id=tenant_id,
+                target_type="tenant",
+                details={"businessName": business_name, "deleted": deleted_counts},
+            )
 
         logger.info(
             "SUPER_ADMIN eliminó tenant %s (%s): %s",

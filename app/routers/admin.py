@@ -25,6 +25,7 @@ from app.models.tenant import (
 )
 from app.services.admin_tenant import AdminTenantService
 from app.services.admin_payment import AdminPaymentService
+from app.services.audit_service import AuditService
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -139,11 +140,13 @@ async def admin_manual_payment(
 async def admin_suspend_tenant(
     tenant_id: str,
     data: SuspendRequest = SuspendRequest(reason=""),
-    _: UserResponse = Depends(require_super_admin),
+    current_user: UserResponse = Depends(require_super_admin),
 ):
     """Suspender un tenant — cambia status a SUSPENDED."""
-    service = AdminTenantService(get_database())
-    return await service.suspend(tenant_id, data.reason)
+    db = get_database()
+    service = AdminTenantService(db)
+    audit_service = AuditService(db)
+    return await service.suspend(tenant_id, data.reason, audit_service=audit_service)
 
 
 # ── Cancel tenant ─────────────────────────────────────────────────────────────
@@ -167,11 +170,13 @@ async def admin_cancel_tenant(
 async def admin_reactivate_tenant(
     tenant_id: str,
     data: ReactivateRequest = ReactivateRequest(reason=""),
-    _: UserResponse = Depends(require_super_admin),
+    current_user: UserResponse = Depends(require_super_admin),
 ):
     """Reactivar un tenant — cambia status a ACTIVE. Solo si está SUSPENDED."""
-    service = AdminTenantService(get_database())
-    return await service.reactivate(tenant_id, data.reason)
+    db = get_database()
+    service = AdminTenantService(db)
+    audit_service = AuditService(db)
+    return await service.reactivate(tenant_id, data.reason, audit_service=audit_service)
 
 
 # ── Payment history ───────────────────────────────────────────────────────────
@@ -289,8 +294,10 @@ async def admin_approve_payment(
     current_user: UserResponse = Depends(require_super_admin),
 ):
     """Aprobar transferencia pendiente → activa al tenant."""
-    service = AdminPaymentService(get_database())
-    return await service.approve_payment(tenant_id, data.notes, current_user.username)
+    db = get_database()
+    service = AdminPaymentService(db)
+    audit_service = AuditService(db)
+    return await service.approve_payment(tenant_id, data.notes, current_user.username, audit_service=audit_service)
 
 
 @router.post("/tenants/{tenant_id}/reject-payment")
@@ -300,8 +307,10 @@ async def admin_reject_payment(
     current_user: UserResponse = Depends(require_super_admin),
 ):
     """Rechazar transferencia pendiente."""
-    service = AdminPaymentService(get_database())
-    return await service.reject_payment(tenant_id, data.reason, current_user.username)
+    db = get_database()
+    service = AdminPaymentService(db)
+    audit_service = AuditService(db)
+    return await service.reject_payment(tenant_id, data.reason, current_user.username, audit_service=audit_service)
 
 
 # ── Delete tenant (full data wipe) ─────────────────────────────────────────────
@@ -340,5 +349,54 @@ async def admin_delete_tenant(
 
     # 3. Delegar eliminación al servicio
     service = AdminTenantService(db)
-    result = await service.delete_tenant(tenant_id)
+    audit_service = AuditService(db)
+    result = await service.delete_tenant(tenant_id, audit_service=audit_service)
     return result
+
+
+# ── Audit logs ────────────────────────────────────────────────────────────────
+
+
+@router.get("/audit-logs")
+async def admin_audit_logs(
+    event: Optional[str] = Query(None, description="Filtrar por tipo de evento (ej: LOGIN_SUCCESS, TENANT_SUSPENDED)"),
+    actor_id: Optional[str] = Query(None, description="Filtrar por ID del actor"),
+    tenant_id: Optional[str] = Query(None, description="Filtrar por tenantId"),
+    from_date: Optional[str] = Query(None, alias="from", description="Fecha desde (YYYY-MM-DDTHH:MM:SS)"),
+    to_date: Optional[str] = Query(None, alias="to", description="Fecha hasta (YYYY-MM-DDTHH:MM:SS)"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    _: UserResponse = Depends(require_super_admin),
+):
+    """Consultar logs de auditoría con filtros opcionales.
+
+    Solo accesible por SUPER_ADMIN. Los logs se ordenan por timestamp descendente.
+    """
+    from datetime import datetime
+
+    db = get_database()
+    audit_service = AuditService(db)
+
+    # Parsear fechas si vienen como string
+    from_dt = None
+    to_dt = None
+    if from_date:
+        try:
+            from_dt = datetime.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato inválido para 'from'. Usá ISO 8601 (ej: 2025-01-01T00:00:00)")
+    if to_date:
+        try:
+            to_dt = datetime.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato inválido para 'to'. Usá ISO 8601 (ej: 2025-01-01T00:00:00)")
+
+    return await audit_service.query_logs(
+        event=event,
+        actor_id=actor_id,
+        tenant_id=tenant_id,
+        from_date=from_dt,
+        to_date=to_dt,
+        page=page,
+        limit=limit,
+    )

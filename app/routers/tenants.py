@@ -31,6 +31,8 @@ from app.services.tenant_auth import (
 )
 from app.services.email import send_password_reset_email
 from app.services.password_reset import create_reset_token
+from app.services.audit_service import AuditService
+from app.models.audit_log import AuditEvents
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,26 @@ async def register_tenant(data: TenantCreate):
     db = get_database()
     auth_service = TenantAuthService(db)
     tenant_data = await auth_service.register(data)
+
+    # Audit log: tenant registration
+    try:
+        audit_service = AuditService(db)
+        await audit_service.log_event(
+            event=AuditEvents.TENANT_REGISTERED,
+            actor_id=tenant_data.get("tenantId", "unknown"),
+            actor_type="TENANT",
+            tenant_id=tenant_data.get("tenantId", "unknown"),
+            target_id=tenant_data.get("tenantId"),
+            target_type="tenant",
+            details={
+                "businessName": data.businessName,
+                "email": data.email,
+                "plan": data.plan.value,
+            },
+        )
+    except Exception:
+        logger.warning("Failed to log audit event for tenant registration", exc_info=True)
+
     return TenantResponse(**tenant_data)
 
 

@@ -81,6 +81,9 @@ async def migrate(dry_run: bool = False):
         (db[Collections.COUNTERS], [("tenantId", 1)], True),
         (db["notification_configs"], [("tenantId", 1), ("type", 1)], True),
         (db["notification_logs"], [("tenantId", 1), ("clientId", 1), ("sentAt", -1)], False),
+        (db["audit_logs"], [("tenantId", 1), ("timestamp", -1)], False),
+        (db["audit_logs"], [("event", 1), ("timestamp", -1)], False),
+        (db["audit_logs"], [("actor_id", 1), ("timestamp", -1)], False),
     ]
 
     if dry_run:

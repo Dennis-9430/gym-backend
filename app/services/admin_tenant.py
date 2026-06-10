@@ -59,16 +59,16 @@ class AdminTenantService:
             {"$match": {"createdAt": {"$gte": month_start}}},
             {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
         ]
-        revenue_cursor = await self.db[Collections.TENANT_PAYMENTS].aggregate(pipeline).to_list(None)
+        revenue_cursor = await self.db[Collections.TENANT_PAYMENTS].aggregate(pipeline).to_list(5000)
         monthly_revenue = revenue_cursor[0]["total"] if revenue_cursor else 0.0
 
         # Pagos recientes
         recent_cursor = (
             await self.db[Collections.TENANT_PAYMENTS]
-            .find()
+            .find({}, {"tenantId": 1, "amount": 1, "status": 1, "createdAt": 1, "method": 1})
             .sort("createdAt", -1)
             .limit(10)
-            .to_list(None)
+            .to_list(10)
         )
         # Batch fetch tenant info for recent payments
         tenant_ids = list(set(p["tenantId"] for p in recent_cursor))
@@ -77,7 +77,7 @@ class AdminTenantService:
             tenants_list = await self.db[Collections.TENANTS].find(
                 {"tenantId": {"$in": tenant_ids}},
                 {"tenantId": 1, "businessName": 1, "businessCode": 1},
-            ).to_list(None)
+            ).to_list(10)
             tenant_map = {t["tenantId"]: t for t in tenants_list}
 
         recent_payments = []
@@ -136,11 +136,11 @@ class AdminTenantService:
         skip = (page - 1) * limit
         cursor = (
             await self.db[Collections.TENANTS]
-            .find(query)
+            .find(query, {"_id": 1, "tenantId": 1, "businessName": 1, "businessCode": 1, "plan": 1, "subscriptionStatus": 1, "createdAt": 1, "email": 1, "subscriptionEndDate": 1, "isDemo": 1, "phone": 1, "address": 1, "city": 1})
             .sort("createdAt", -1)
             .skip(skip)
             .limit(limit)
-            .to_list(None)
+            .to_list(limit)
         )
 
         items = []
@@ -178,7 +178,7 @@ class AdminTenantService:
                 "last_payment_date": {"$max": "$createdAt"},
             }},
         ]
-        payment_summary = await self.db[Collections.TENANT_PAYMENTS].aggregate(payment_pipeline).to_list(None)
+        payment_summary = await self.db[Collections.TENANT_PAYMENTS].aggregate(payment_pipeline).to_list(1)
         if payment_summary:
             tenant["total_paid"] = payment_summary[0].get("total_paid", 0)
             tenant["last_payment_date"] = payment_summary[0].get("last_payment_date")

@@ -153,11 +153,11 @@ class AdminPaymentService:
         skip = (page - 1) * limit
         cursor = (
             await self.db[Collections.TENANT_PAYMENTS]
-            .find(query)
+            .find(query, {"tenantId": 1, "amount": 1, "status": 1, "createdAt": 1, "method": 1, "plan": 1, "months": 1, "currency": 1, "source": 1, "reference": 1, "registeredBy": 1, "approvedBy": 1})
             .sort("createdAt", -1)
             .skip(skip)
             .limit(limit)
-            .to_list(None)
+            .to_list(limit)
         )
 
         items = []
@@ -179,11 +179,11 @@ class AdminPaymentService:
         skip = (page - 1) * limit
         cursor = (
             await self.db[Collections.TENANT_PAYMENTS]
-            .find(query)
+            .find(query, {"tenantId": 1, "amount": 1, "status": 1, "createdAt": 1, "method": 1, "plan": 1, "months": 1, "currency": 1, "notes": 1, "reference": 1})
             .sort("createdAt", -1)
             .skip(skip)
             .limit(limit)
-            .to_list(None)
+            .to_list(limit)
         )
 
         # Batch fetch tenant info
@@ -193,7 +193,7 @@ class AdminPaymentService:
             tenants_list = await self.db[Collections.TENANTS].find(
                 {"tenantId": {"$in": tenant_ids}},
                 {"tenantId": 1, "businessName": 1, "businessCode": 1, "email": 1},
-            ).to_list(None)
+            ).to_list(len(tenant_ids))
             tenant_map = {t["tenantId"]: t for t in tenants_list}
 
         items = []

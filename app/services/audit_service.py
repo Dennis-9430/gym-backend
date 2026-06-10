@@ -93,7 +93,7 @@ class AuditService:
             .sort("timestamp", -1)
             .skip(skip)
             .limit(limit)
-            .to_list(None)
+            .to_list(limit)
         )
 
         items = []

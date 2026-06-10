@@ -22,6 +22,7 @@ from app.models.employee import EmployeeResponse, EmployeeUpdate
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.auth.cookie import set_auth_cookie, clear_auth_cookie
+from app.services.db_utils import TransactionManager
 from app.services.tenant_auth import (
     TenantAuthService,
     TenantInfo,
@@ -53,7 +54,10 @@ async def register_tenant(data: TenantCreate):
 
     db = get_database()
     auth_service = TenantAuthService(db)
-    tenant_data = await auth_service.register(data)
+
+    tx = TransactionManager(db, settings.MONGODB_TRANSACTIONS_ENABLED)
+    async with tx as session:
+        tenant_data = await auth_service.register(data, session=session)
 
     # Audit log: tenant registration
     try:

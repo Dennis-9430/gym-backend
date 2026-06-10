@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     EMAIL_FROM_NAME: str = "Gym Management"
     FRONTEND_URL: str = "http://localhost:5173"
 
+    # MongoDB Transactions — replica set required for transactions
+    # Atlas M0 free tier does NOT support transactions (no replica set)
+    # When True → uses session.start_transaction() / commit / abort
+    # When False → uses try/except with manual cleanup/compensation
+    MONGODB_TRANSACTIONS_ENABLED: bool = False
+
     # CSRF — Double Submit Cookie protection
     # Warn-only mode by default — set to True to enforce CSRF validation
     CSRF_ENABLED: bool = False

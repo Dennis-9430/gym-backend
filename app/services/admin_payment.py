@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, TYPE_CHECKING
 
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorClientSession
 
 from app.database import Collections
 from app.models.tenant import SubscriptionStatus
@@ -212,11 +212,15 @@ class AdminPaymentService:
             "limit": limit,
         }
 
-    async def approve_payment(self, tenant_id: str, notes: str, admin_username: str, audit_service: Optional['AuditService'] = None) -> dict:
-        """Aprobar transferencia pendiente → activa al tenant."""
+    async def approve_payment(self, tenant_id: str, notes: str, admin_username: str, session: Optional[AsyncIOMotorClientSession] = None, audit_service: Optional['AuditService'] = None) -> dict:
+        """Aprobar transferencia pendiente → activa al tenant.
+        
+        When session is provided (transaction mode), all writes use the session
+        for atomicity. When session is None (fallback mode), writes are direct.
+        """
         from fastapi import HTTPException
 
-        tenant = await self.db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+        tenant = await self.db[Collections.TENANTS].find_one({"tenantId": tenant_id}, session=session)
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
 
@@ -224,7 +228,7 @@ class AdminPaymentService:
         pending_payment = (
             await self.db[Collections.TENANT_PAYMENTS]
             .find_one({"tenantId": tenant_id, "method": "TRANSFER", "status": "PENDING"},
-                      sort=[("createdAt", -1)])
+                      sort=[("createdAt", -1)], session=session)
         )
         if not pending_payment:
             raise HTTPException(status_code=404, detail="No hay pagos por transferencia pendientes")
@@ -244,7 +248,8 @@ class AdminPaymentService:
                 "approvedAt": now,
                 "notes": notes or pending_payment.get("notes", ""),
                 "updatedAt": now,
-            }}
+            }},
+            session=session,
         )
 
         # Activar tenant
@@ -255,7 +260,8 @@ class AdminPaymentService:
                 "plan": pending_payment.get("plan", tenant.get("plan", "BASIC")),
                 "subscriptionEndDate": end_date,
                 "updatedAt": now,
-            }}
+            }},
+            session=session,
         )
 
         if audit_service:

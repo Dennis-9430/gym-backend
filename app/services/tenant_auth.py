@@ -15,7 +15,7 @@ from typing import Optional
 from bson import ObjectId
 from fastapi import HTTPException, status, Request
 from jose import JWTError, jwt
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorClientSession
 from pydantic import BaseModel
 
 from app.auth.cookie import get_token_from_request
@@ -114,15 +114,18 @@ class TenantAuthService:
     def __init__(self, db: AsyncIOMotorDatabase):
         self.db = db
 
-    async def register(self, data: TenantCreate) -> dict:
+    async def register(self, data: TenantCreate, session: Optional[AsyncIOMotorClientSession] = None) -> dict:
         """Register a new gym tenant with owner.
 
         Returns the tenant_data dict. Does NOT check registration whitelist — 
         that's the router's responsibility.
+        
+        When session is provided (transaction mode), all writes use the session
+        for atomicity. When session is None (fallback mode), writes are direct.
         """
         try:
             # Verificar si el email ya existe en tenants
-            existing = await self.db.tenants.find_one({"email": data.email})
+            existing = await self.db.tenants.find_one({"email": data.email}, session=session)
             if existing:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -131,10 +134,10 @@ class TenantAuthService:
 
             # Generar o validar businessCode (slug único a partir del nombre)
             business_code = data.businessCode or slugify(data.businessName)
-            code_exists = await self.db.tenants.find_one({"businessCode": business_code})
+            code_exists = await self.db.tenants.find_one({"businessCode": business_code}, session=session)
             if code_exists:
                 suffix = 1
-                while await self.db.tenants.find_one({"businessCode": f"{business_code}-{suffix}"}):
+                while await self.db.tenants.find_one({"businessCode": f"{business_code}-{suffix}"}, session=session):
                     suffix += 1
                 business_code = f"{business_code}-{suffix}"
 
@@ -164,7 +167,7 @@ class TenantAuthService:
             }
 
             # Insertar tenant
-            tenant_result = await self.db.tenants.insert_one(tenant_data)
+            tenant_result = await self.db.tenants.insert_one(tenant_data, session=session)
             tenant_data["_id"] = tenant_result.inserted_id
 
             # Crear el OWNER automáticamente
@@ -184,24 +187,28 @@ class TenantAuthService:
                 "updatedAt": datetime.utcnow(),
             }
 
-            owner_result = await self.db.employees.insert_one(owner_data)
+            owner_result = await self.db.employees.insert_one(owner_data, session=session)
             owner_id = str(owner_result.inserted_id)
 
             # También crear el usuario en la colección users para login
-            await self.db.users.insert_one({
-                "username": data.email.lower(),
-                "password_hash": get_password_hash(data.password),
-                "role": "GERENTE",
-                "employeeId": owner_id,
-                "tenantId": tenant_id,
-                "isOwner": True,
-                "createdAt": datetime.utcnow()
-            })
+            await self.db.users.insert_one(
+                {
+                    "username": data.email.lower(),
+                    "password_hash": get_password_hash(data.password),
+                    "role": "GERENTE",
+                    "employeeId": owner_id,
+                    "tenantId": tenant_id,
+                    "isOwner": True,
+                    "createdAt": datetime.utcnow()
+                },
+                session=session,
+            )
 
             # Actualizar tenant con ownerEmployeeId
             await self.db.tenants.update_one(
                 {"_id": tenant_result.inserted_id},
-                {"$set": {"ownerEmployeeId": owner_id}}
+                {"$set": {"ownerEmployeeId": owner_id}},
+                session=session,
             )
             tenant_data["ownerEmployeeId"] = owner_id
             tenant_data["id"] = str(tenant_result.inserted_id)
@@ -238,7 +245,7 @@ class TenantAuthService:
             ]
 
             for service_data in default_services:
-                await self.db.services.insert_one(service_data)
+                await self.db.services.insert_one(service_data, session=session)
 
             # ── PAYMENT PROCESSING ─────────────────────────────────────────────
             now = datetime.utcnow()
@@ -261,14 +268,15 @@ class TenantAuthService:
                     "subscriptionEndDate": now + timedelta(days=30 * data.paymentMonths),
                     "createdAt": now,
                 }
-                await self.db[Collections.TENANT_PAYMENTS].insert_one(payment_doc)
+                await self.db[Collections.TENANT_PAYMENTS].insert_one(payment_doc, session=session)
                 await self.db[Collections.TENANTS].update_one(
                     {"tenantId": tenant_id},
                     {"$set": {
                         "subscriptionStatus": SubscriptionStatus.ACTIVE,
                         "subscriptionEndDate": now + timedelta(days=30 * data.paymentMonths),
                         "updatedAt": now,
-                    }}
+                    }},
+                    session=session,
                 )
                 tenant_data["subscriptionStatus"] = SubscriptionStatus.ACTIVE
                 tenant_data["subscriptionEndDate"] = now + timedelta(days=30 * data.paymentMonths)
@@ -290,7 +298,7 @@ class TenantAuthService:
                     "subscriptionEndDate": None,
                     "createdAt": now,
                 }
-                await self.db[Collections.TENANT_PAYMENTS].insert_one(payment_doc)
+                await self.db[Collections.TENANT_PAYMENTS].insert_one(payment_doc, session=session)
 
             # Enviar email de bienvenida al owner en background (solo si no es demo)
             if data.isDemo:

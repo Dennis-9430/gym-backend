@@ -23,9 +23,11 @@ from app.models.tenant import (
     RejectPaymentRequest,
     TenantResponse,
 )
+from app.config import settings
 from app.services.admin_tenant import AdminTenantService
 from app.services.admin_payment import AdminPaymentService
 from app.services.audit_service import AuditService
+from app.services.db_utils import TransactionManager
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -297,7 +299,10 @@ async def admin_approve_payment(
     db = get_database()
     service = AdminPaymentService(db)
     audit_service = AuditService(db)
-    return await service.approve_payment(tenant_id, data.notes, current_user.username, audit_service=audit_service)
+    tx = TransactionManager(db, settings.MONGODB_TRANSACTIONS_ENABLED)
+    async with tx as session:
+        result = await service.approve_payment(tenant_id, data.notes, current_user.username, session=session, audit_service=audit_service)
+    return result
 
 
 @router.post("/tenants/{tenant_id}/reject-payment")
@@ -350,7 +355,9 @@ async def admin_delete_tenant(
     # 3. Delegar eliminación al servicio
     service = AdminTenantService(db)
     audit_service = AuditService(db)
-    result = await service.delete_tenant(tenant_id, audit_service=audit_service)
+    tx = TransactionManager(db, settings.MONGODB_TRANSACTIONS_ENABLED)
+    async with tx as session:
+        result = await service.delete_tenant(tenant_id, session=session, audit_service=audit_service)
     return result
 
 

@@ -13,7 +13,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional, TYPE_CHECKING
 
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorClientSession
 
 from app.database import Collections
 from app.models.tenant import SubscriptionStatus
@@ -318,11 +318,14 @@ class AdminTenantService:
         updated["id"] = str(updated.pop("_id"))
         return updated
 
-    async def delete_tenant(self, tenant_id: str, audit_service: Optional['AuditService'] = None) -> dict:
+    async def delete_tenant(self, tenant_id: str, session: Optional[AsyncIOMotorClientSession] = None, audit_service: Optional['AuditService'] = None) -> dict:
         """Elimina un tenant y TODOS sus datos de la base de datos.
         Password verification is handled by the router — this receives tenant_id only.
+        
+        When session is provided (transaction mode), all writes use the session
+        for atomicity. When session is None (fallback mode), writes are direct.
         """
-        tenant = await self.db[Collections.TENANTS].find_one({"tenantId": tenant_id})
+        tenant = await self.db[Collections.TENANTS].find_one({"tenantId": tenant_id}, session=session)
         if not tenant:
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
@@ -351,12 +354,12 @@ class AdminTenantService:
         ]
 
         for collection_name, label in collections_to_delete:
-            result = await self.db[collection_name].delete_many(filter_query)
+            result = await self.db[collection_name].delete_many(filter_query, session=session)
             if result.deleted_count > 0:
                 deleted_counts[label] = result.deleted_count
 
         # Eliminar el tenant mismo
-        result = await self.db[Collections.TENANTS].delete_one(filter_query)
+        result = await self.db[Collections.TENANTS].delete_one(filter_query, session=session)
         deleted_counts["tenant"] = result.deleted_count
 
         detail = ", ".join(f"{count} {label}" for label, count in deleted_counts.items())

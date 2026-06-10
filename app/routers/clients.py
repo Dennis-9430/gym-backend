@@ -1,22 +1,19 @@
 # Endpoints para gestión de clientes
 # Relacionado con: models/client.py, auth/router.py, database.py
 """Clients router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Body, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, Response
 from typing import Optional
 from bson import ObjectId
-from jose import JWTError, jwt
 from app.models.client import (
     ClientCreate, ClientUpdate, ClientResponse, 
     ClientListResponse, MembershipStatus
 )
-from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
-from app.auth.cookie import get_token_from_request
+from app.api.dependencies import get_tenant_from_request
 from app.database import get_database, Collections
 from app.utils.sanitize import sanitize_search_input
 from app.utils.demo_protect import check_seed_protected
-from app.config import settings
 
 
 router = APIRouter(prefix="/api/clients", tags=["Clients"])
@@ -36,44 +33,6 @@ def serialize_client(doc: dict) -> dict:
     return doc
 
 
-async def get_tenant_from_header(request: Request) -> TenantResponse:
-    token = get_token_from_request(request)
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token no proporcionado"
-        )
-    
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        tenant_id = payload.get("tenantId")
-        
-        if not tenant_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token sin tenantId"
-            )
-        
-        # Retornar solo con los datos necesarios del tenant
-        return TenantResponse(
-            id=tenant_id,
-            tenantId=tenant_id,
-            email="tenant@example.com",
-            businessName=payload.get("businessName") or "Mi Gimnasio",
-            businessPhone=payload.get("businessPhone") or "",
-            businessAddress=payload.get("businessAddress") or "",
-            businessRuc=payload.get("businessRuc") or "",
-            plan=SubscriptionPlan.BASIC,
-            subscriptionStatus=SubscriptionStatus.ACTIVE
-        )
-    
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido"
-        )
-
-
 @router.get("", response_model=ClientListResponse)
 async def list_clients(
     # Lista clientes con paginación y filtros
@@ -83,12 +42,12 @@ async def list_clients(
     status: Optional[MembershipStatus] = None,
     search: Optional[str] = None,
     active_only: bool = Query(False),
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
     # Usar tenantId del token de tenant
-    query = {"tenantId": tenant.tenantId}
+    query = {"tenantId": tenant["tenantId"]}
     
     # Si active_only es False, incluir todos los clientes
     # Si es True, filtrar solo activos
@@ -126,7 +85,7 @@ async def get_client(
     # Obtiene un cliente por ID
     # Relacionado con: models/client.py (ClientResponse)
     client_id: str,
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     if not ObjectId.is_valid(client_id):
         raise HTTPException(
@@ -135,7 +94,7 @@ async def get_client(
         )
     
     db = get_database()
-    client = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
+    client = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant["tenantId"]})
     
     if not client:
         raise HTTPException(
@@ -151,14 +110,14 @@ async def create_client(
     # Crea un nuevo cliente
     # Relacionado con: models/client.py (ClientCreate)
     client_data: ClientCreate,
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
     # Verificar con tenantId
     existing = await db[Collections.CLIENTS].find_one({
         "documentNumber": client_data.documentNumber,
-        "tenantId": tenant.tenantId
+        "tenantId": tenant["tenantId"]
     })
     if existing:
         raise HTTPException(
@@ -167,7 +126,7 @@ async def create_client(
         )
     
     client_doc = client_data.model_dump()
-    client_doc["tenantId"] = tenant.tenantId
+    client_doc["tenantId"] = tenant["tenantId"]
     client_doc["createdAt"] = None
     client_doc["membershipStartDate"] = None
     client_doc["membershipEndDate"] = None
@@ -185,7 +144,7 @@ async def update_client(
     # El client_id se envía en el body para evitar problemas de tipado en el path parameter
     # Relacionado con: models/client.py (ClientUpdate)
     client_data: ClientUpdate,
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     client_id = client_data.client_id
     if not client_id or not ObjectId.is_valid(client_id):
@@ -196,7 +155,7 @@ async def update_client(
     
     db = get_database()
     
-    existing = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
+    existing = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant["tenantId"]})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -204,24 +163,24 @@ async def update_client(
         )
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.CLIENTS, client_id, "modificados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.CLIENTS, client_id, "modificados")
     
     update_data = {k: v for k, v in client_data.model_dump().items() if v is not None and k != "client_id"}
     
     if update_data:
         await db[Collections.CLIENTS].update_one(
-            {"_id": ObjectId(client_id), "tenantId": tenant.tenantId},
+            {"_id": ObjectId(client_id), "tenantId": tenant["tenantId"]},
             {"$set": update_data}
         )
     
-    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
+    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant["tenantId"]})
     return ClientResponse(**serialize_client(updated))
 
 
 @router.delete("/{client_id}")
 async def delete_client(
     client_id: str,
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     if not ObjectId.is_valid(client_id):
         raise HTTPException(
@@ -232,9 +191,9 @@ async def delete_client(
     db = get_database()
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.CLIENTS, client_id, "eliminados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.CLIENTS, client_id, "eliminados")
     
-    result = await db[Collections.CLIENTS].delete_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
+    result = await db[Collections.CLIENTS].delete_one({"_id": ObjectId(client_id), "tenantId": tenant["tenantId"]})
     if result.deleted_count == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -251,7 +210,7 @@ async def update_membership(
     membershipStatus: MembershipStatus,
     startDate: Optional[str] = None,
     endDate: Optional[str] = None,
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     if not ObjectId.is_valid(client_id):
         raise HTTPException(
@@ -262,7 +221,7 @@ async def update_membership(
     db = get_database()
     
     # SEGURIDAD: filtrar por tenantId para evitar fuga entre negocios
-    existing = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
+    existing = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant["tenantId"]})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -270,7 +229,7 @@ async def update_membership(
         )
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.CLIENTS, client_id, "modificados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.CLIENTS, client_id, "modificados")
     
     from datetime import datetime
     
@@ -284,12 +243,12 @@ async def update_membership(
         update_data["membershipEndDate"] = datetime.fromisoformat(endDate)
     
     await db[Collections.CLIENTS].update_one(
-        {"_id": ObjectId(client_id), "tenantId": tenant.tenantId},
+        {"_id": ObjectId(client_id), "tenantId": tenant["tenantId"]},
         {"$set": update_data}
     )
     
     # SEGURIDAD: read-back también filtra por tenantId
-    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
+    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant["tenantId"]})
     return ClientResponse(**serialize_client(updated))
 
 
@@ -298,7 +257,7 @@ async def assign_membership_with_service(
     client_id: str,
     serviceId: str = Body(...),
     startDate: Optional[str] = Body(None),
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     """
     Asigna una membresía a un cliente calculando automáticamente la fecha fin
@@ -308,7 +267,7 @@ async def assign_membership_with_service(
     from datetime import datetime, timedelta
     
     # Buscar cliente por _id de MongoDB
-    existing = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
+    existing = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant["tenantId"]})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -316,7 +275,7 @@ async def assign_membership_with_service(
         )
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.CLIENTS, client_id, "modificados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.CLIENTS, client_id, "modificados")
     
     # Buscar servicio
     if not ObjectId.is_valid(serviceId):
@@ -327,7 +286,7 @@ async def assign_membership_with_service(
     
     service = await db[Collections.SERVICES].find_one({
         "_id": ObjectId(serviceId),
-        "tenantId": tenant.tenantId
+        "tenantId": tenant["tenantId"]
     })
     if not service:
         raise HTTPException(
@@ -372,12 +331,12 @@ async def assign_membership_with_service(
     }
     
     await db[Collections.CLIENTS].update_one(
-        {"_id": ObjectId(client_id), "tenantId": tenant.tenantId},
+        {"_id": ObjectId(client_id), "tenantId": tenant["tenantId"]},
         {"$set": update_data}
     )
     
     # SEGURIDAD: read-back también filtra por tenantId
-    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant.tenantId})
+    updated = await db[Collections.CLIENTS].find_one({"_id": ObjectId(client_id), "tenantId": tenant["tenantId"]})
     
     # ──────────────────────────────────────────────────
     # GENERAR FACTURA + EMAIL por la membresía asignada
@@ -388,7 +347,7 @@ async def assign_membership_with_service(
     # Generar número de factura
     from pymongo import ReturnDocument
     counter = await db.counters.find_one_and_update(
-        {"tenantId": tenant.tenantId},
+        {"tenantId": tenant["tenantId"]},
         {"$inc": {"invoiceCount": 1}},
         upsert=True,
         return_document=ReturnDocument.AFTER
@@ -402,16 +361,16 @@ async def assign_membership_with_service(
     client_email = existing.get("email") or ""
     
     invoice_doc = {
-        "tenantId": tenant.tenantId,
+        "tenantId": tenant["tenantId"],
         "createdBy": "Sistema",
         "type": InvoiceType.MEMBERSHIP.value,
         "invoiceNumber": invoice_number,
         "business": {
-            "name": tenant.businessName or "Gimnasio",
-            "ruc": tenant.businessRuc or "",
-            "address": tenant.businessAddress or "",
-            "phone": tenant.businessPhone or "",
-            "email": tenant.email or "",
+            "name": tenant.get("businessName") or "Gimnasio",
+            "ruc": tenant.get("businessRuc") or "",
+            "address": tenant.get("businessAddress") or "",
+            "phone": tenant.get("businessPhone") or "",
+            "email": tenant.get("email") or "",
         },
         "client": {
             "firstName": client_name,
@@ -457,7 +416,7 @@ async def assign_membership_with_service(
             db, invoice_doc, client_email,
             client_name=full_name,
             is_renewal=is_renewal,
-            business_name=tenant.businessName or "Gimnasio"
+            business_name=tenant.get("businessName") or "Gimnasio"
         ))
     
     return serialize_client(updated)

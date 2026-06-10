@@ -1,22 +1,20 @@
 # Endpoints para gestión de ventas
 # Relacionado con: models/sale.py, auth/router.py, database.py
 """Sales router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from typing import Optional
 from datetime import datetime, timedelta
 from bson import ObjectId
-from jose import JWTError, jwt
 import asyncio
 from pymongo import ReturnDocument
 from app.models.sale import (
     SaleCreate, SaleUpdate, SaleResponse, SaleListResponse, SaleItem, PaymentMethod
 )
-from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.models.invoice import InvoiceStatus, PaymentMethodType
 from app.models.sale import PaymentStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
-from app.auth.cookie import get_token_from_request
+from app.api.dependencies import get_tenant_from_request
 from app.database import get_database, Collections
 from app.utils.demo_protect import check_seed_protected
 from app.config import settings
@@ -44,53 +42,6 @@ def serialize_sale(doc: dict) -> dict:
     return doc
 
 
-async def get_tenant_from_header_sales(request: Request) -> TenantResponse:
-    token = get_token_from_request(request)
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token no proporcionado"
-        )
-    
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        tenant_id = payload.get("tenantId")
-        
-        if not tenant_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token inválido"
-            )
-        
-        # Obtener datos reales del tenant desde la base de datos
-        db = get_database()
-        tenant_doc = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
-        
-        plan_from_db = SubscriptionPlan.BASIC
-        if tenant_doc and tenant_doc.get("plan"):
-            plan_str = tenant_doc.get("plan")
-            if plan_str in ["BASIC", "PREMIUM"]:
-                plan_from_db = SubscriptionPlan(plan_str)
-        
-        return TenantResponse(
-            id=tenant_id,
-            tenantId=tenant_id,
-            email="tenant@example.com",
-            businessName=tenant_doc.get("businessName", "Mi Gimnasio") if tenant_doc else "Mi Gimnasio",
-            businessPhone=tenant_doc.get("businessPhone", "") if tenant_doc else "",
-            businessAddress=tenant_doc.get("businessAddress", "") if tenant_doc else "",
-            businessRuc=tenant_doc.get("businessRuc", "") if tenant_doc else "",
-            plan=plan_from_db if plan_from_db in ["BASIC", "PREMIUM"] else SubscriptionPlan.BASIC,
-            subscriptionStatus=SubscriptionStatus.ACTIVE
-        )
-    
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido"
-        )
-
-
 @router.get("", response_model=SaleListResponse)
 async def list_sales(
     skip: int = Query(0, ge=0),
@@ -98,11 +49,11 @@ async def list_sales(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     client_id: Optional[int] = None,
-    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
-    query = {"tenantId": tenant.tenantId}
+    query = {"tenantId": tenant["tenantId"]}
     if start_date:
         query["createdAt"] = {"$gte": datetime.fromisoformat(start_date)}
     if end_date:
@@ -128,7 +79,7 @@ async def list_sales(
 @router.get("/{sale_id}", response_model=SaleResponse)
 async def get_sale(
     sale_id: str,
-    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -139,7 +90,7 @@ async def get_sale(
         )
     
     # SEGURIDAD: filtrar por tenantId para evitar fuga entre negocios
-    sale = await db[Collections.SALES].find_one({"_id": ObjectId(sale_id), "tenantId": tenant.tenantId})
+    sale = await db[Collections.SALES].find_one({"_id": ObjectId(sale_id), "tenantId": tenant["tenantId"]})
     if not sale:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -154,7 +105,7 @@ async def update_sale(
     sale_id: str,
     sale_data: SaleUpdate,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     """Actualiza el método de pago de una venta"""
     db = get_database()
@@ -166,7 +117,7 @@ async def update_sale(
         )
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.SALES, sale_id, "modificados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.SALES, sale_id, "modificados")
     
     update_fields = sale_data.model_dump()
     
@@ -179,7 +130,7 @@ async def update_sale(
         update_fields["transferAmount"] = update_fields.get("transferAmount", 0)
     
     result = await db[Collections.SALES].find_one_and_update(
-        {"_id": ObjectId(sale_id), "tenantId": tenant.tenantId},
+        {"_id": ObjectId(sale_id), "tenantId": tenant["tenantId"]},
         {"$set": update_fields},
         return_document=ReturnDocument.AFTER
     )
@@ -201,12 +152,12 @@ from app.auth.schemas import UserResponse
 async def create_sale(
     sale_data: SaleCreate,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
     sale_doc = sale_data.model_dump()
-    sale_doc["tenantId"] = tenant.tenantId
+    sale_doc["tenantId"] = tenant["tenantId"]
     sale_doc["createdBy"] = current_user.username
     sale_doc["createdAt"] = datetime.utcnow()
     
@@ -225,7 +176,7 @@ async def create_sale(
     for item in sale_doc.get("items", []):
         if item.get("productId"):
             product = await db[Collections.PRODUCTS].find_one(
-                {"_id": ObjectId(item["productId"]), "tenantId": tenant.tenantId}
+                {"_id": ObjectId(item["productId"]), "tenantId": tenant["tenantId"]}
             )
             if not product:
                 raise HTTPException(
@@ -244,7 +195,7 @@ async def create_sale(
             new_stock = current_stock - quantity
             # SEGURIDAD: filtrar por tenantId al descontar stock
             await db[Collections.PRODUCTS].update_one(
-                {"_id": ObjectId(item["productId"]), "tenantId": tenant.tenantId},
+                {"_id": ObjectId(item["productId"]), "tenantId": tenant["tenantId"]},
                 {"$set": {"stock": new_stock}}
             )
     
@@ -253,7 +204,7 @@ async def create_sale(
     
     # Generar factura si el checkbox está marcado
     if sale_data.generateInvoice:
-        await generate_invoice_from_sale(db, sale_doc, tenant.tenantId, sale_data.invoiceEmail)
+        await generate_invoice_from_sale(db, sale_doc, tenant["tenantId"], sale_data.invoiceEmail)
     
     return serialize_sale(sale_doc)
 
@@ -603,7 +554,7 @@ async def send_invoice_email_async(db, invoice_doc: dict, email: str,
 async def delete_sale(
     sale_id: str,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     if current_user.role.value not in ["GERENTE"]:
         raise HTTPException(
@@ -612,7 +563,7 @@ async def delete_sale(
         )
     
     db = get_database()
-    tenant_id = tenant.tenantId
+    tenant_id = tenant["tenantId"]
     
     if not ObjectId.is_valid(sale_id):
         raise HTTPException(
@@ -621,7 +572,7 @@ async def delete_sale(
         )
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.SALES, sale_id, "eliminados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.SALES, sale_id, "eliminados")
     
     result = await db[Collections.SALES].delete_one({"_id": ObjectId(sale_id), "tenantId": tenant_id})
     if result.deleted_count == 0:
@@ -638,7 +589,7 @@ async def update_voucher(
     sale_id: str,
     voucher_data: dict,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     """Actualiza voucher y/o imagen del comprobante - Todos pueden usar"""
     db = get_database()
@@ -647,7 +598,7 @@ async def update_voucher(
         raise HTTPException(status_code=400, detail="Invalid sale ID")
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.SALES, sale_id, "modificados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.SALES, sale_id, "modificados")
     
     update_data = {}
     if "voucherCode" in voucher_data:
@@ -661,7 +612,7 @@ async def update_voucher(
     
     if update_data:
         await db[Collections.SALES].update_one(
-            {"_id": ObjectId(sale_id), "tenantId": tenant.tenantId},
+            {"_id": ObjectId(sale_id), "tenantId": tenant["tenantId"]},
             {"$set": update_data}
         )
     
@@ -672,7 +623,7 @@ async def update_voucher(
 async def verify_payment(
     sale_id: str,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_sales)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     """Marca pago como verificado - Solo ADMIN"""
     if current_user.role.value not in ["ADMIN", "GERENTE"]:
@@ -687,10 +638,10 @@ async def verify_payment(
         raise HTTPException(status_code=400, detail="Invalid sale ID")
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.SALES, sale_id, "modificados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.SALES, sale_id, "modificados")
     
     await db[Collections.SALES].update_one(
-        {"_id": ObjectId(sale_id), "tenantId": tenant.tenantId},
+        {"_id": ObjectId(sale_id), "tenantId": tenant["tenantId"]},
         {"$set": {"paymentStatus": "verified"}}
     )
     

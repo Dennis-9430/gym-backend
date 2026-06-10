@@ -13,14 +13,10 @@ from uuid import uuid4
 from typing import Optional
 
 from bson import ObjectId
-from fastapi import HTTPException, status, Request
-from jose import JWTError, jwt
+from fastapi import HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorClientSession
-from pydantic import BaseModel
 
-from app.auth.cookie import get_token_from_request
 from app.auth.utils import verify_password, get_password_hash, create_access_token
-from app.config import settings
 from app.database import Collections
 from app.models.tenant import (
     TenantCreate,
@@ -41,13 +37,6 @@ if TYPE_CHECKING:
     from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
-
-
-class TenantInfo(BaseModel):
-    tenantId: str
-    name: str = ""
-    plan: str = "BASIC"
-    status: str = "ACTIVE"
 
 
 def serialize_employee(doc: dict) -> dict:
@@ -73,36 +62,6 @@ def serialize_tenant(doc: dict) -> dict:
         doc["id"] = str(doc.get("_id", ""))
         doc.pop("_id", None)
     return doc
-
-
-async def get_tenant_from_header_tenants(request: Request) -> TenantInfo:
-    token = get_token_from_request(request)
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token no proporcionado"
-        )
-
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        tenant_id = payload.get("tenantId")
-        plan = payload.get("plan", "BASIC")
-
-        if not tenant_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token inválido"
-            )
-
-        return TenantInfo(
-            tenantId=tenant_id,
-            plan=plan
-        )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido"
-        )
 
 
 class TenantAuthService:

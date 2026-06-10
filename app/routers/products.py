@@ -1,17 +1,15 @@
 # Endpoints para gestión de productos
 # Relacionado con: models/product.py, auth/router.py, database.py
 """Products router"""
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from typing import Optional
 from bson import ObjectId
-from jose import JWTError, jwt
 from app.models.product import (
     ProductCreate, ProductUpdate, ProductResponse, ProductListResponse
 )
-from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
-from app.auth.cookie import get_token_from_request
+from app.api.dependencies import get_tenant_from_request
 from app.database import get_database, Collections
 from app.utils.sanitize import sanitize_search_input
 from app.utils.demo_protect import check_seed_protected
@@ -28,43 +26,6 @@ def serialize_product(doc: dict) -> dict:
     return doc
 
 
-async def get_tenant_from_header_products(request: Request) -> TenantResponse:
-    token = get_token_from_request(request)
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token no proporcionado"
-        )
-    
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        tenant_id = payload.get("tenantId")
-        
-        if not tenant_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token inválido"
-            )
-        
-        return TenantResponse(
-            id=tenant_id,
-            tenantId=tenant_id,
-            email="tenant@example.com",
-            businessName=payload.get("businessName") or "Mi Gimnasio",
-            businessPhone=payload.get("businessPhone") or "",
-            businessAddress=payload.get("businessAddress") or "",
-            businessRuc=payload.get("businessRuc") or "",
-            plan=SubscriptionPlan.BASIC,
-            subscriptionStatus=SubscriptionStatus.ACTIVE
-        )
-    
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido"
-        )
-
-
 @router.get("", response_model=ProductListResponse)
 async def list_products(
     skip: int = Query(0, ge=0),
@@ -72,11 +33,11 @@ async def list_products(
     category: Optional[str] = None,
     search: Optional[str] = None,
     low_stock: bool = Query(False),
-    tenant: TenantResponse = Depends(get_tenant_from_header_products)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
-    query = {"tenantId": tenant.tenantId}
+    query = {"tenantId": tenant["tenantId"]}
     if category:
         query["category"] = category
     
@@ -105,7 +66,7 @@ async def list_products(
 @router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(
     product_id: str,
-    tenant: TenantResponse = Depends(get_tenant_from_header_products)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -116,7 +77,7 @@ async def get_product(
         )
     
     # SEGURIDAD: filtrar por tenantId para evitar fuga entre negocios
-    product = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant.tenantId})
+    product = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant["tenantId"]})
     if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -129,11 +90,11 @@ async def get_product(
 @router.post("", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_product(
     product_data: ProductCreate,
-    tenant: TenantResponse = Depends(get_tenant_from_header_products)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
-    existing = await db[Collections.PRODUCTS].find_one({"code": product_data.code, "tenantId": tenant.tenantId})
+    existing = await db[Collections.PRODUCTS].find_one({"code": product_data.code, "tenantId": tenant["tenantId"]})
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -141,7 +102,7 @@ async def create_product(
         )
     
     product_doc = product_data.model_dump()
-    product_doc["tenantId"] = tenant.tenantId
+    product_doc["tenantId"] = tenant["tenantId"]
     product_doc["createdAt"] = None
     product_doc["updatedAt"] = None
     
@@ -155,7 +116,7 @@ async def create_product(
 async def update_product(
     product_id: str,
     product_data: ProductUpdate,
-    tenant: TenantResponse = Depends(get_tenant_from_header_products)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -166,7 +127,7 @@ async def update_product(
         )
     
     # SEGURIDAD: filtrar por tenantId para evitar fuga entre negocios
-    existing = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant.tenantId})
+    existing = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant["tenantId"]})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -174,14 +135,14 @@ async def update_product(
         )
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.PRODUCTS, product_id, "modificados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.PRODUCTS, product_id, "modificados")
     
     update_data = {k: v for k, v in product_data.model_dump().items() if v is not None}
     
     # Validar código único si se está actualizando
     if "code" in update_data:
         code_exists = await db[Collections.PRODUCTS].find_one(
-            {"code": update_data["code"], "tenantId": tenant.tenantId, "_id": {"$ne": ObjectId(product_id)}}
+            {"code": update_data["code"], "tenantId": tenant["tenantId"], "_id": {"$ne": ObjectId(product_id)}}
         )
         if code_exists:
             raise HTTPException(
@@ -191,19 +152,19 @@ async def update_product(
     
     if update_data:
         await db[Collections.PRODUCTS].update_one(
-            {"_id": ObjectId(product_id), "tenantId": tenant.tenantId},
+            {"_id": ObjectId(product_id), "tenantId": tenant["tenantId"]},
             {"$set": update_data}
         )
     
     # SEGURIDAD: read-back también filtra por tenantId
-    updated = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant.tenantId})
+    updated = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant["tenantId"]})
     return serialize_product(updated)
 
 
 @router.delete("/{product_id}")
 async def delete_product(
     product_id: str,
-    tenant: TenantResponse = Depends(get_tenant_from_header_products)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -214,11 +175,11 @@ async def delete_product(
         )
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.PRODUCTS, product_id, "eliminados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.PRODUCTS, product_id, "eliminados")
     
     result = await db[Collections.PRODUCTS].delete_one({
         "_id": ObjectId(product_id),
-        "tenantId": tenant.tenantId
+        "tenantId": tenant["tenantId"]
     })
     if result.deleted_count == 0:
         raise HTTPException(
@@ -234,7 +195,7 @@ async def update_stock(
     product_id: str,
     quantity: int,
     operation: str = "add",
-    tenant: TenantResponse = Depends(get_tenant_from_header_products)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -245,7 +206,7 @@ async def update_stock(
         )
     
     # SEGURIDAD: filtrar por tenantId para evitar fuga entre negocios
-    existing = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant.tenantId})
+    existing = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant["tenantId"]})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -253,7 +214,7 @@ async def update_stock(
         )
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.PRODUCTS, product_id, "modificados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.PRODUCTS, product_id, "modificados")
     
     current_stock = existing.get("stock", 0)
     if operation == "add":
@@ -272,10 +233,10 @@ async def update_stock(
         )
     
     await db[Collections.PRODUCTS].update_one(
-        {"_id": ObjectId(product_id), "tenantId": tenant.tenantId},
+        {"_id": ObjectId(product_id), "tenantId": tenant["tenantId"]},
         {"$set": {"stock": new_stock}}
     )
     
     # SEGURIDAD: read-back también filtra por tenantId
-    updated = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant.tenantId})
+    updated = await db[Collections.PRODUCTS].find_one({"_id": ObjectId(product_id), "tenantId": tenant["tenantId"]})
     return serialize_product(updated)

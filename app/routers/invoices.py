@@ -2,10 +2,9 @@
 # Relacionado con: models/invoice.py, database.py
 """Invoices API router"""
 import logging
-from fastapi import APIRouter, HTTPException, Depends, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from typing import Optional
 from bson import ObjectId
-from jose import JWTError, jwt
 from datetime import datetime
 from app.models.invoice import (
     InvoiceCreate,
@@ -15,10 +14,10 @@ from app.models.invoice import (
     InvoiceEmailResponse,
     InvoiceStatus,
 )
-from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
+from app.models.tenant import SubscriptionPlan, SubscriptionStatus
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
-from app.auth.cookie import get_token_from_request
+from app.api.dependencies import get_tenant_from_request
 from app.database import get_database, Collections
 from app.utils.demo_protect import check_seed_protected
 from app.config import settings
@@ -27,47 +26,6 @@ from app.services.email import send_email
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/invoices", tags=["Invoices"])
-
-
-async def get_tenant_from_header(request: Request) -> TenantResponse:
-    token = get_token_from_request(request)
-    if not token:
-        raise HTTPException(status_code=401, detail="Token no proporcionado")
-    
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        tenant_id = payload.get("tenantId")
-        
-        if not tenant_id:
-            raise HTTPException(status_code=401, detail="Token inválido")
-        
-        db = get_database()
-        tenant_doc = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
-        
-        if not tenant_doc:
-            raise HTTPException(status_code=401, detail="Tenant no encontrado")
-        
-        plan = SubscriptionPlan.BASIC
-        plan_str = tenant_doc.get("plan", "BASIC")
-        if plan_str in ["BASIC", "PREMIUM"]:
-            plan = SubscriptionPlan(plan_str)
-        
-        return TenantResponse(
-            id=tenant_doc.get("tenantId", tenant_id),
-            tenantId=tenant_id,
-            email=tenant_doc.get("email", ""),
-            businessName=tenant_doc.get("businessName", ""),
-            businessPhone=tenant_doc.get("businessPhone", ""),
-            businessAddress=tenant_doc.get("businessAddress", ""),
-            businessRuc=tenant_doc.get("businessRuc", ""),
-            plan=plan,
-            subscriptionStatus=tenant_doc.get("subscriptionStatus", SubscriptionStatus.ACTIVE),
-            subscriptionEndDate=tenant_doc.get("subscriptionEndDate"),
-            taxRate=tenant_doc.get("taxRate", 12.0),
-            currency=tenant_doc.get("currency", "USD"),
-        )
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Token inválido")
 
 
 def serialize_invoice(doc: dict) -> dict:
@@ -81,11 +39,11 @@ def serialize_invoice(doc: dict) -> dict:
 async def list_invoices(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
-    query = {"tenantId": tenant.tenantId}
+    query = {"tenantId": tenant["tenantId"]}
     total = await db[Collections.INVOICES].count_documents(query)
     
     cursor = db[Collections.INVOICES].find(query).sort("createdAt", -1).skip(skip).limit(limit)
@@ -101,11 +59,11 @@ async def list_invoices(
 
 @router.get("/next-number")
 async def get_next_invoice_number(
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
-    counter = await db.counters.find_one({"tenantId": tenant.tenantId})
+    counter = await db.counters.find_one({"tenantId": tenant["tenantId"]})
     invoice_count = (counter.get("invoiceCount", 0) + 1) if counter else 1
     
     return f"FAC-{datetime.now().year}-{invoice_count:06d}"
@@ -114,7 +72,7 @@ async def get_next_invoice_number(
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
 async def get_invoice(
     invoice_id: str,
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -123,7 +81,7 @@ async def get_invoice(
     
     invoice = await db[Collections.INVOICES].find_one({
         "_id": ObjectId(invoice_id),
-        "tenantId": tenant.tenantId
+        "tenantId": tenant["tenantId"]
     })
     
     if not invoice:
@@ -136,14 +94,14 @@ async def get_invoice(
 async def create_invoice(
     invoice_data: InvoiceCreate,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
     # Obtener siguiente número de factura (con return_document=AFTER para evitar duplicados)
     from pymongo import ReturnDocument
     counter = await db.counters.find_one_and_update(
-        {"tenantId": tenant.tenantId},
+        {"tenantId": tenant["tenantId"]},
         {"$inc": {"invoiceCount": 1}},
         upsert=True,
         return_document=ReturnDocument.AFTER
@@ -152,10 +110,10 @@ async def create_invoice(
     invoice_number = f"FAC-{datetime.now().year}-{invoice_count:06d}"
     
     # Obtener datos del negocio desde tenant
-    business_tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant.tenantId})
+    business_tenant = await db[Collections.TENANTS].find_one({"tenantId": tenant["tenantId"]})
     
     invoice_doc = {
-        "tenantId": tenant.tenantId,
+        "tenantId": tenant["tenantId"],
         "createdBy": current_user.username,
         "type": invoice_data.type.value,
         "invoiceNumber": invoice_number,
@@ -191,7 +149,7 @@ async def create_invoice(
 async def delete_invoice(
     invoice_id: str,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -202,11 +160,11 @@ async def delete_invoice(
         raise HTTPException(status_code=400, detail="ID de factura inválido")
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.INVOICES, invoice_id, "eliminados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.INVOICES, invoice_id, "eliminados")
     
     result = await db[Collections.INVOICES].delete_one({
         "_id": ObjectId(invoice_id),
-        "tenantId": tenant.tenantId
+        "tenantId": tenant["tenantId"]
     })
     
     if result.deleted_count == 0:
@@ -218,7 +176,7 @@ async def delete_invoice(
 @router.post("/send-email", response_model=InvoiceEmailResponse)
 async def send_invoice_email(
     email_request: InvoiceEmailRequest,
-    tenant: TenantResponse = Depends(get_tenant_from_header)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -228,7 +186,7 @@ async def send_invoice_email(
     
     invoice = await db[Collections.INVOICES].find_one({
         "_id": ObjectId(email_request.invoiceId),
-        "tenantId": tenant.tenantId
+        "tenantId": tenant["tenantId"]
     })
     
     if not invoice:
@@ -388,7 +346,7 @@ async def send_invoice_email(
             await db[Collections.INVOICES].update_one(
                 {
                     "_id": ObjectId(email_request.invoiceId),
-                    "tenantId": tenant.tenantId
+                    "tenantId": tenant["tenantId"]
                 },
                 {"$set": {
                     "emailDelivery.sent": True,
@@ -410,7 +368,7 @@ async def send_invoice_email(
         await db[Collections.INVOICES].update_one(
             {
                 "_id": ObjectId(email_request.invoiceId),
-                "tenantId": tenant.tenantId
+                "tenantId": tenant["tenantId"]
             },
             {"$set": {
                 "emailDelivery.sent": False,

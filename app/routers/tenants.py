@@ -23,12 +23,11 @@ from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
 from app.auth.cookie import set_auth_cookie, clear_auth_cookie
 from app.services.db_utils import TransactionManager
+from app.api.dependencies import get_tenant_from_request
 from app.services.tenant_auth import (
     TenantAuthService,
-    TenantInfo,
     serialize_tenant,
     serialize_employee,
-    get_tenant_from_header_tenants,
 )
 from app.services.email import send_password_reset_email
 from app.services.password_reset import create_reset_token
@@ -322,7 +321,7 @@ async def get_plans():
 async def update_owner(
     update_data: EmployeeUpdate,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantInfo = Depends(get_tenant_from_header_tenants)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     """Actualizar datos del owner (solo el propio owner puede actualizarse)"""
     from app.auth.utils import get_password_hash
@@ -344,7 +343,7 @@ async def update_owner(
 
     owner = await db[Collections.EMPLOYEES].find_one({
         "_id": ObjectId(owner_employee_id),
-        "tenantId": tenant.tenantId
+        "tenantId": tenant["tenantId"]
     })
 
     if not owner:
@@ -380,20 +379,20 @@ async def update_owner(
 
     if user_update:
         await db[Collections.USERS].update_one(
-            {"employeeId": owner_employee_id, "tenantId": tenant.tenantId},
+            {"employeeId": owner_employee_id, "tenantId": tenant["tenantId"]},
             {"$set": user_update}
         )
 
     if final_update:
         final_update["updatedAt"] = datetime.utcnow()
         await db[Collections.EMPLOYEES].update_one(
-            {"_id": ObjectId(owner_employee_id), "tenantId": tenant.tenantId},
+            {"_id": ObjectId(owner_employee_id), "tenantId": tenant["tenantId"]},
             {"$set": final_update}
         )
 
     updated_owner = await db[Collections.EMPLOYEES].find_one({
         "_id": ObjectId(owner_employee_id),
-        "tenantId": tenant.tenantId
+        "tenantId": tenant["tenantId"]
     })
 
     return EmployeeResponse(**serialize_employee(updated_owner))
@@ -402,7 +401,7 @@ async def update_owner(
 @router.get("/owner", response_model=EmployeeResponse)
 async def get_owner(
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantInfo = Depends(get_tenant_from_header_tenants)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     """Obtener datos del owner actual"""
     db = get_database()
@@ -416,7 +415,7 @@ async def get_owner(
 
     owner = await db[Collections.EMPLOYEES].find_one({
         "_id": ObjectId(owner_employee_id),
-        "tenantId": tenant.tenantId
+        "tenantId": tenant["tenantId"]
     })
 
     if not owner:

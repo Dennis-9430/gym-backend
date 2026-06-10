@@ -1,14 +1,12 @@
 # Endpoints para reportes financieros
 # Relacionado con: database.py, routers/sales.py, models/sale.py
 """Financial reports router"""
-from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from typing import Optional
 from datetime import datetime, timedelta
-from jose import JWTError, jwt
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
-from app.auth.cookie import get_token_from_request
-from app.models.tenant import TenantResponse, SubscriptionPlan, SubscriptionStatus
+from app.api.dependencies import get_tenant_from_request
 from app.database import get_database, Collections
 from app.config import settings
 
@@ -16,68 +14,12 @@ from app.config import settings
 router = APIRouter(prefix="/api/reports", tags=["Reports"])
 
 
-# NOTA: get_tenant_from_header_* está duplicado en 7 routers (reports, sales, products,
-# clients, tenants, invoices, employees). Técnicamente debería unificarse en una
-# dependencia común tipo get_current_tenant() en app/auth/deps.py.
-# Pendiente para refactor post-seguridad.
-async def get_tenant_from_header_reports(request: Request) -> TenantResponse:
-    token = get_token_from_request(request)
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token no proporcionado"
-        )
-    
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        tenant_id = payload.get("tenantId")
-        
-        if not tenant_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token inválido"
-            )
-        
-        # Obtener datos reales del tenant desde la base de datos
-        db = get_database()
-        tenant_doc = await db[Collections.TENANTS].find_one({"tenantId": tenant_id})
-        
-        plan_from_db = SubscriptionPlan.BASIC
-        if tenant_doc and tenant_doc.get("plan"):
-            plan_str = tenant_doc.get("plan")
-            if plan_str in ["BASIC", "PREMIUM"]:
-                plan_from_db = SubscriptionPlan(plan_str)
-        
-        status_from_db = SubscriptionStatus.ACTIVE
-        if tenant_doc and tenant_doc.get("subscriptionStatus"):
-            status_str = tenant_doc.get("subscriptionStatus")
-            if status_str in ["ACTIVE", "EXPIRED", "PENDING", "CANCELLED"]:
-                status_from_db = SubscriptionStatus(status_str)
-        
-        return TenantResponse(
-            id=tenant_id,
-            tenantId=tenant_id,
-            email="tenant@example.com",
-            businessName=tenant_doc.get("businessName", "Mi Gimnasio") if tenant_doc else "Mi Gimnasio",
-            businessPhone=tenant_doc.get("businessPhone") if tenant_doc else None,
-            businessAddress=tenant_doc.get("businessAddress") if tenant_doc else None,
-            businessRuc=tenant_doc.get("businessRuc") if tenant_doc else None,
-            plan=plan_from_db,
-            subscriptionStatus=status_from_db,
-        )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido"
-        )
-
-
 @router.get("/financial/summary")
 async def get_financial_summary(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_reports)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -87,7 +29,7 @@ async def get_financial_summary(
     if end_date:
         date_filter["$lte"] = datetime.fromisoformat(end_date)
     
-    query = {"tenantId": tenant.tenantId}
+    query = {"tenantId": tenant["tenantId"]}
     if date_filter:
         query["createdAt"] = date_filter
     
@@ -139,7 +81,7 @@ async def get_daily_report(
     year: int,
     month: int,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_reports)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -152,7 +94,7 @@ async def get_daily_report(
     pipeline = [
         {
             "$match": {
-                "tenantId": tenant.tenantId,
+                "tenantId": tenant["tenantId"],
                 "createdAt": {"$gte": start, "$lt": end}
             }
         },
@@ -189,15 +131,15 @@ async def get_daily_report(
 @router.get("/clients/summary")
 async def get_clients_summary(
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_reports)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
-    total_clients = await db[Collections.CLIENTS].count_documents({"tenantId": tenant.tenantId})
+    total_clients = await db[Collections.CLIENTS].count_documents({"tenantId": tenant["tenantId"]})
     
-    active = await db[Collections.CLIENTS].count_documents({"tenantId": tenant.tenantId, "membershipStatus": "ACTIVE"})
-    expired = await db[Collections.CLIENTS].count_documents({"tenantId": tenant.tenantId, "membershipStatus": "EXPIRED"})
-    none = await db[Collections.CLIENTS].count_documents({"tenantId": tenant.tenantId, "membershipStatus": "NONE"})
+    active = await db[Collections.CLIENTS].count_documents({"tenantId": tenant["tenantId"], "membershipStatus": "ACTIVE"})
+    expired = await db[Collections.CLIENTS].count_documents({"tenantId": tenant["tenantId"], "membershipStatus": "EXPIRED"})
+    none = await db[Collections.CLIENTS].count_documents({"tenantId": tenant["tenantId"], "membershipStatus": "NONE"})
     
     return {
         "total": total_clients,
@@ -211,7 +153,7 @@ async def get_clients_summary(
 async def get_attendance_summary(
     days: int = Query(7, ge=1, le=30),
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantResponse = Depends(get_tenant_from_header_reports)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -220,7 +162,7 @@ async def get_attendance_summary(
     pipeline = [
         {
             "$match": {
-                "tenantId": tenant.tenantId,
+                "tenantId": tenant["tenantId"],
                 "checkIn": {"$gte": start_date}
             }
         },

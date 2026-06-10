@@ -3,19 +3,17 @@
 # SEGURIDAD: Todos los endpoints requieren autenticación y filtran por tenantId
 """Employees router"""
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional
 from bson import ObjectId
-from jose import JWTError, jwt
 from app.models.employee import (
     EmployeeCreate, EmployeeUpdate,
     EmployeeResponse, EmployeeListResponse,
     EmployeeRole, EmployeeStatus
 )
-from pydantic import BaseModel
 from app.auth.router import get_current_user
 from app.auth.schemas import UserResponse
-from app.auth.cookie import get_token_from_request
+from app.api.dependencies import get_tenant_from_request
 from app.auth.utils import get_password_hash
 from app.database import get_database, Collections
 from app.utils.demo_protect import check_seed_protected
@@ -23,43 +21,6 @@ from app.config import settings
 
 
 router = APIRouter(prefix="/api/employees", tags=["Employees"])
-
-
-class TenantInfo(BaseModel):
-    tenantId: str
-    name: str = ""
-    plan: str = "BASIC"
-    status: str = "ACTIVE"
-
-
-async def get_tenant_from_header_employees(request: Request) -> TenantInfo:
-    token = get_token_from_request(request)
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token no proporcionado"
-        )
-    
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        tenant_id = payload.get("tenantId")
-        plan = payload.get("plan", "BASIC")
-        
-        if not tenant_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token inválido"
-            )
-        
-        return TenantInfo(
-            tenantId=tenant_id,
-            plan=plan
-        )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido"
-        )
 
 
 def serialize_employee(doc: dict) -> dict:
@@ -99,10 +60,10 @@ async def get_employees(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantInfo = Depends(get_tenant_from_header_employees)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
-    query = {"tenantId": tenant.tenantId}
+    query = {"tenantId": tenant["tenantId"]}
     
     if status_filter:
         query["status"] = status_filter
@@ -134,7 +95,7 @@ async def get_employees(
 async def get_employee(
     employee_id: str,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantInfo = Depends(get_tenant_from_header_employees)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     
@@ -145,7 +106,7 @@ async def get_employee(
             detail="ID de empleado inválido"
         )
     
-    employee = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
+    employee = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant["tenantId"]})
     
     if not employee:
         raise HTTPException(
@@ -160,7 +121,7 @@ async def get_employee(
 async def create_employee(
     employee_data: EmployeeCreate,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantInfo = Depends(get_tenant_from_header_employees)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     user_role = current_user.role.value
@@ -181,7 +142,7 @@ async def create_employee(
     
     existing = await db[Collections.EMPLOYEES].find_one({
         "username": employee_data.username,
-        "tenantId": tenant.tenantId
+        "tenantId": tenant["tenantId"]
     })
     if existing:
         raise HTTPException(
@@ -190,7 +151,7 @@ async def create_employee(
         )
     
     employee_doc = employee_data.model_dump()
-    employee_doc["tenantId"] = tenant.tenantId
+    employee_doc["tenantId"] = tenant["tenantId"]
     employee_doc["createdAt"] = datetime.utcnow()
     employee_doc["updatedAt"] = datetime.utcnow()
     
@@ -209,7 +170,7 @@ async def create_employee(
             "password_hash": password_hash,
             "role": employee_data.role.value,
             "employeeId": employee_id_str,
-            "tenantId": tenant.tenantId,
+            "tenantId": tenant["tenantId"],
             "createdAt": datetime.utcnow()
         })
     
@@ -224,7 +185,7 @@ async def create_employee(
                 name=full_name or employee_data.username,
                 username=employee_data.username,
                 password=employee_data.password,
-                business_name=tenant.name or "Gimnasio",
+                business_name=tenant.get("businessName") or "Gimnasio",
             )
         )
     
@@ -236,7 +197,7 @@ async def update_employee(
     employee_id: str,
     update_data: EmployeeUpdate,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantInfo = Depends(get_tenant_from_header_employees)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     user_role = current_user.role.value
@@ -248,7 +209,7 @@ async def update_employee(
             detail="ID de empleado inválido"
         )
     
-    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
+    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant["tenantId"]})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -256,7 +217,7 @@ async def update_employee(
         )
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.EMPLOYEES, employee_id, "modificados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.EMPLOYEES, employee_id, "modificados")
     
     # PROTECCIÓN: RECEPCIONISTA no puede editar empleados
     if user_role == "RECEPCIONISTA":
@@ -299,7 +260,7 @@ async def update_employee(
     if "username" in update_dict and update_dict["username"]:
         existing_username = await db[Collections.EMPLOYEES].find_one({
             "username": update_dict["username"],
-            "tenantId": tenant.tenantId,
+            "tenantId": tenant["tenantId"],
             "_id": {"$ne": ObjectId(employee_id)}
         })
         if existing_username:
@@ -310,19 +271,19 @@ async def update_employee(
     
     # SEGURIDAD: filtrar por tenantId al actualizar
     await db[Collections.EMPLOYEES].update_one(
-        {"_id": ObjectId(employee_id), "tenantId": tenant.tenantId},
+        {"_id": ObjectId(employee_id), "tenantId": tenant["tenantId"]},
         {"$set": update_dict}
     )
     
     # Si se actualizó la contraseña, actualizar SOLO en users
     if password_hash:
         await db[Collections.USERS].update_one(
-            {"employeeId": employee_id, "tenantId": tenant.tenantId},
+            {"employeeId": employee_id, "tenantId": tenant["tenantId"]},
             {"$set": {"password_hash": password_hash}}
         )
     
     # SEGURIDAD: read-back también filtra por tenantId
-    updated = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
+    updated = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant["tenantId"]})
     return EmployeeResponse(**serialize_employee(updated))
 
 
@@ -330,7 +291,7 @@ async def update_employee(
 async def delete_employee(
     employee_id: str,
     current_user: UserResponse = Depends(get_current_user),
-    tenant: TenantInfo = Depends(get_tenant_from_header_employees)
+    tenant: dict = Depends(get_tenant_from_request)
 ):
     db = get_database()
     user_role = current_user.role.value
@@ -342,7 +303,7 @@ async def delete_employee(
             detail="Solo administradores o gerentes pueden eliminar empleados"
         )
     
-    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
+    existing = await db[Collections.EMPLOYEES].find_one({"_id": ObjectId(employee_id), "tenantId": tenant["tenantId"]})
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -350,7 +311,7 @@ async def delete_employee(
         )
     
     # Proteger seed data en cuentas demo
-    await check_seed_protected(db, tenant.tenantId, Collections.EMPLOYEES, employee_id, "eliminados")
+    await check_seed_protected(db, tenant["tenantId"], Collections.EMPLOYEES, employee_id, "eliminados")
     
     # PROTECCIÓN: El OWNER no puede eliminarse a sí mismo
     if existing.get("isOwner", False):
@@ -368,12 +329,12 @@ async def delete_employee(
         )
     
     # SEGURIDAD: filtrar por tenantId al eliminar
-    result = await db[Collections.EMPLOYEES].delete_one({"_id": ObjectId(employee_id), "tenantId": tenant.tenantId})
+    result = await db[Collections.EMPLOYEES].delete_one({"_id": ObjectId(employee_id), "tenantId": tenant["tenantId"]})
     
     # También eliminar el usuario asociado para que no pueda hacer login
     await db[Collections.USERS].delete_one({
         "employeeId": employee_id,
-        "tenantId": tenant.tenantId
+        "tenantId": tenant["tenantId"]
     })
     
     return None

@@ -235,6 +235,21 @@ async def health_check():
     return {"status": "healthy"}
 
 
+@app.get("/ready")
+async def ready_check():
+    """Readiness check — verifica que MongoDB esté conectado."""
+    from app.database import get_database
+    try:
+        db = get_database()
+        await db.command("ping")
+        return {"status": "ready", "mongodb": "connected"}
+    except Exception as e:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "mongodb": str(e)}
+        )
+
+
 # Incluir todas las rutas del API
 # Relacionado con: auth/router.py, routers/*
 app.include_router(auth_router)

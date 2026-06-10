@@ -19,6 +19,8 @@ from app.main import app
 from app.database import get_database, Collections
 from app.config import settings
 from app.auth.utils import get_password_hash
+from app.middleware.rate_limit import set_store
+from app.middleware.rate_limit_store import SlidingWindowMemoryStore
 
 
 TEST_DB_NAME = f"{settings.MONGODB_DB_NAME}_test"
@@ -39,6 +41,12 @@ async def mongo_client() -> AsyncGenerator[AsyncIOMotorClient, None]:
 async def test_db(mongo_client: AsyncIOMotorClient) -> AsyncIOMotorDatabase:
     """Base de datos de test (gym_db_test)."""
     return mongo_client[TEST_DB_NAME]
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limit():
+    """Resetea rate limit store entre tests para evitar 429 falsos."""
+    set_store(SlidingWindowMemoryStore())
 
 
 @pytest_asyncio.fixture(autouse=True)

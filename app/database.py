@@ -124,6 +124,9 @@ async def create_indexes():
         (db["notification_configs"], [("tenantId", 1), ("type", 1)], True),
         (db["notification_logs"], [("tenantId", 1), ("clientId", 1), ("sentAt", -1)], False),
         (db[Collections.TENANT_PAYMENTS], [("tenantId", 1), ("createdAt", -1)], False),
+        (db[Collections.TENANT_PAYMENTS], [("createdAt", 1)], False),  # monthly revenue aggregation
+        (db[Collections.TENANTS], [("subscriptionStatus", 1)], False),  # count_documents by status
+        (db[Collections.TENANTS], [("subscriptionStatus", 1), ("subscriptionEndDate", 1)], False),  # expiring soon query
         (db[Collections.FINGERPRINTS], [("tenantId", 1), ("entityType", 1), ("entityId", 1)], True),
         (db[AUDIT_LOGS_COLLECTION], [("tenantId", 1), ("timestamp", -1)], False),
         (db[AUDIT_LOGS_COLLECTION], [("event", 1), ("timestamp", -1)], False),
@@ -183,6 +186,9 @@ REQUIRED_INDEXES = [
     (Collections.PASSWORD_RESET_TOKENS, "token_hash_1", "hash único de reset token"),
     (Collections.PASSWORD_RESET_TOKENS, "tenantId_1_used_1", "reset tokens por tenant"),
     (Collections.TENANT_PAYMENTS, "tenantId_1_createdAt_-1", "payments por tenant ordenado"),
+    (Collections.TENANT_PAYMENTS, "createdAt_1", "tenant_payments createdAt"),
+    (Collections.TENANTS, "subscriptionStatus_1", "tenants subscriptionStatus"),
+    (Collections.TENANTS, "subscriptionStatus_1_subscriptionEndDate_1", "tenants subscriptionStatus+subscriptionEndDate"),
     (AUDIT_LOGS_COLLECTION, "tenantId_1_timestamp_-1", "audit logs por tenant"),
     (AUDIT_LOGS_COLLECTION, "event_1_timestamp_-1", "audit logs por evento"),
     (AUDIT_LOGS_COLLECTION, "actor_id_1_timestamp_-1", "audit logs por actor"),

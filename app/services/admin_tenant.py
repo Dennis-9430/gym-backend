@@ -8,6 +8,7 @@ PURE REFACTOR — logic is identical to the original. Only change is:
   db. → self.db.  (constructor-injected database instance)
 """
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timedelta
@@ -17,6 +18,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorClientSession
 
 from app.database import Collections
 from app.models.tenant import SubscriptionStatus
+from app.services.cache import get_cache
 
 if TYPE_CHECKING:
     from app.services.audit_service import AuditService
@@ -35,42 +37,86 @@ class AdminTenantService:
 
     async def get_dashboard(self) -> dict:
         """Estadísticas generales del sistema para el dashboard del SUPER_ADMIN."""
-        total_tenants = await self.db[Collections.TENANTS].count_documents({})
-        active = await self.db[Collections.TENANTS].count_documents(
+        # Cache: devolver datos cacheados si existen
+        cache = get_cache()
+        cache_key = "admin_dashboard"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
+
+        now = datetime.utcnow()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # ── Crear futures para consultas independientes ────────────────
+        # Todas estas coroutines son independientes entre sí y se lanzan en paralelo.
+        total_tenants_future = self.db[Collections.TENANTS].count_documents({})
+        active_future = self.db[Collections.TENANTS].count_documents(
             {"subscriptionStatus": SubscriptionStatus.ACTIVE}
         )
-        pending_payment = await self.db[Collections.TENANTS].count_documents(
+        pending_payment_future = self.db[Collections.TENANTS].count_documents(
             {"subscriptionStatus": SubscriptionStatus.PENDING_PAYMENT}
         )
-        suspended = await self.db[Collections.TENANTS].count_documents(
+        suspended_future = self.db[Collections.TENANTS].count_documents(
             {"subscriptionStatus": SubscriptionStatus.SUSPENDED}
         )
-        cancelled = await self.db[Collections.TENANTS].count_documents(
+        cancelled_future = self.db[Collections.TENANTS].count_documents(
             {"subscriptionStatus": SubscriptionStatus.CANCELLED}
         )
-        expired = await self.db[Collections.TENANTS].count_documents(
+        expired_future = self.db[Collections.TENANTS].count_documents(
             {"subscriptionStatus": SubscriptionStatus.EXPIRED}
         )
 
         # Ingresos del mes actual
-        now = datetime.utcnow()
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        pipeline = [
+        revenue_pipeline = [
             {"$match": {"createdAt": {"$gte": month_start}}},
             {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
         ]
-        revenue_cursor = await self.db[Collections.TENANT_PAYMENTS].aggregate(pipeline).to_list(5000)
-        monthly_revenue = revenue_cursor[0]["total"] if revenue_cursor else 0.0
+        revenue_future = self.db[Collections.TENANT_PAYMENTS].aggregate(revenue_pipeline).to_list(5000)
 
-        # Pagos recientes
-        recent_cursor = (
-            await self.db[Collections.TENANT_PAYMENTS]
+        # Pagos recientes (últimos 10)
+        recent_future = (
+            self.db[Collections.TENANT_PAYMENTS]
             .find({}, {"tenantId": 1, "amount": 1, "status": 1, "createdAt": 1, "method": 1})
             .sort("createdAt", -1)
             .limit(10)
             .to_list(10)
         )
-        # Batch fetch tenant info for recent payments
+
+        # Tenants por expirar (próximos 7 días)
+        expiring_future = self.db[Collections.TENANTS].count_documents({
+            "subscriptionStatus": SubscriptionStatus.ACTIVE,
+            "subscriptionEndDate": {
+                "$gte": now,
+                "$lte": now + timedelta(days=7),
+            },
+        })
+
+        # ── Ejecutar todas en paralelo ──────────────────────────────────
+        (
+            total_tenants,
+            active,
+            pending_payment,
+            suspended,
+            cancelled,
+            expired,
+            revenue_cursor,
+            recent_cursor,
+            expiring_soon,
+        ) = await asyncio.gather(
+            total_tenants_future,
+            active_future,
+            pending_payment_future,
+            suspended_future,
+            cancelled_future,
+            expired_future,
+            revenue_future,
+            recent_future,
+            expiring_future,
+        )
+
+        monthly_revenue = revenue_cursor[0]["total"] if revenue_cursor else 0.0
+
+        # Batch fetch tenant info for recent payments (depende de recent_cursor)
         tenant_ids = list(set(p["tenantId"] for p in recent_cursor))
         tenant_map = {}
         if tenant_ids:
@@ -88,16 +134,7 @@ class AdminTenantService:
             p["businessCode"] = info.get("businessCode", "")
             recent_payments.append(p)
 
-        # Tenants por expirar (próximos 7 días)
-        expiring_soon = await self.db[Collections.TENANTS].count_documents({
-            "subscriptionStatus": SubscriptionStatus.ACTIVE,
-            "subscriptionEndDate": {
-                "$gte": now,
-                "$lte": now + timedelta(days=7),
-            },
-        })
-
-        return {
+        result = {
             "total_tenants": total_tenants,
             "active": active,
             "pending_payment": pending_payment,
@@ -108,6 +145,10 @@ class AdminTenantService:
             "recent_payments": recent_payments,
             "expiring_soon": expiring_soon,
         }
+
+        # Cachear resultado por 30 segundos
+        cache.set(cache_key, result, ttl_seconds=30)
+        return result
 
     async def list_tenants(
         self,

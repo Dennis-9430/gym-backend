@@ -11,6 +11,7 @@ from app.config import settings
 from app.database import connect_to_mongodb, close_mongodb_connection
 from app.models.error import APIError, APIErrorDetail, ErrorCodes
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.gzip import GZipMiddleware
 
 logger = logging.getLogger("uvicorn")
 
@@ -275,6 +276,9 @@ app.add_middleware(PlanProtectionMiddleware)
 # Es el middleware más externo — agregarlo último = ejecutarse primero.
 # HTTPException sigue manejándose por el built-in handler de Starlette.
 app.add_middleware(CatchAllErrorMiddleware)
+
+# GZip compression — comprime respuestas >= 1KB para reducir ancho de banda
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 if __name__ == "__main__":

@@ -88,6 +88,7 @@ from app.routers.invoices import router as invoices_router
 from app.routers.demo import router as demo_router
 from app.routers.admin import router as admin_router
 from app.routers.fingerprints import router as fingerprints_router
+from app.routers.payments import router as payments_router
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.csrf import CSRFTokenMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -266,6 +267,7 @@ app.include_router(invoices_router)
 app.include_router(demo_router)
 app.include_router(admin_router)
 app.include_router(fingerprints_router)
+app.include_router(payments_router)
 
 # Rate limiting - 2000 requests/min default, endpoint-specific rules for login/register/etc.
 app.add_middleware(RateLimitMiddleware)

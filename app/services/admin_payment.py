@@ -174,7 +174,7 @@ class AdminPaymentService:
 
     async def list_pending_payments(self, page: int, limit: int) -> dict:
         """Listar pagos por transferencia pendientes de aprobación."""
-        query = {"method": "TRANSFER", "status": "PENDING"}
+        query = {"method": {"$in": ["TRANSFER", "MOCK"]}, "status": "PENDING"}
         total = await self.db[Collections.TENANT_PAYMENTS].count_documents(query)
         skip = (page - 1) * limit
         cursor = (
@@ -224,14 +224,14 @@ class AdminPaymentService:
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
 
-        # Buscar el payment PENDING más reciente
+        # Buscar el payment PENDING más reciente (TRANSFER o MOCK)
         pending_payment = (
             await self.db[Collections.TENANT_PAYMENTS]
-            .find_one({"tenantId": tenant_id, "method": "TRANSFER", "status": "PENDING"},
+            .find_one({"tenantId": tenant_id, "method": {"$in": ["TRANSFER", "MOCK"]}, "status": "PENDING"},
                       sort=[("createdAt", -1)], session=session)
         )
         if not pending_payment:
-            raise HTTPException(status_code=404, detail="No hay pagos por transferencia pendientes")
+            raise HTTPException(status_code=404, detail="No hay pagos pendientes")
 
         now = datetime.utcnow()
         months = pending_payment.get("months", 1)
@@ -294,11 +294,11 @@ class AdminPaymentService:
 
         pending_payment = (
             await self.db[Collections.TENANT_PAYMENTS]
-            .find_one({"tenantId": tenant_id, "method": "TRANSFER", "status": "PENDING"},
+            .find_one({"tenantId": tenant_id, "method": {"$in": ["TRANSFER", "MOCK"]}, "status": "PENDING"},
                       sort=[("createdAt", -1)])
         )
         if not pending_payment:
-            raise HTTPException(status_code=404, detail="No hay pagos por transferencia pendientes")
+            raise HTTPException(status_code=404, detail="No hay pagos pendientes")
 
         now = datetime.utcnow()
 

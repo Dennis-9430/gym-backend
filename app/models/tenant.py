@@ -28,6 +28,7 @@ class PaymentMethod(str, Enum):
     TRANSFER = "TRANSFER"
     CARD = "CARD"
     OTHER = "OTHER"
+    MOCK = "MOCK"
 
 
 class PaymentStatus(str, Enum):

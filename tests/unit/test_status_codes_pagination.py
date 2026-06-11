@@ -284,11 +284,11 @@ class TestListEndpointsReturnPageLimit:
         assert '"limit"' in source or "'limit'" in source
 
     def test_sales_list_has_page_limit(self):
-        """sales.py list_sales return dict includes 'page' and 'limit'."""
+        """sales.py list_sales delegates to SalesService which returns 'page' and 'limit'."""
         import inspect
-        from app.routers.sales import list_sales
+        from app.services.sales_service import SalesService
 
-        source = inspect.getsource(list_sales)
+        source = inspect.getsource(SalesService.list_sales)
         assert '"page"' in source or "'page'" in source
         assert '"limit"' in source or "'limit'" in source
 

@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     # Warn-only mode by default — set to True to enforce CSRF validation
     CSRF_ENABLED: bool = False
 
+    # Registration whitelist — only these emails can register during early access
+    REGISTRATION_WHITELIST: set = {"dennischapu94@gmail.com"}
+
+    # Redis — optional, for production rate limiting and caching
+    REDIS_URL: Optional[str] = None
+    REDIS_RATE_LIMIT_ENABLED: bool = False
+
     # SUPER_ADMIN — Configuración para el superadmin del sistema
     SUPER_ADMIN_EMAIL: str = ""
     SUPER_ADMIN_PASSWORD: str = ""

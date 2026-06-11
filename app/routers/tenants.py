@@ -38,14 +38,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
 
-# Whitelist de emails autorizados para registro anticipado
-REGISTRATION_WHITELIST = {"dennischapu94@gmail.com"}
-
-
 @router.post("/register", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
 async def register_tenant(data: TenantCreate):
     # Solo emails whitelisted pueden registrar — early access control
-    if data.email.lower().strip() not in REGISTRATION_WHITELIST:
+    if data.email.lower().strip() not in settings.REGISTRATION_WHITELIST:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Registro en desarrollo — solo disponible para correos autorizados."
@@ -84,7 +80,8 @@ async def register_tenant(data: TenantCreate):
 async def login_tenant(data: TenantLoginRequest, response: Response):
     db = get_database()
     auth_service = TenantAuthService(db)
-    result = await auth_service.login(data)
+    audit_service = AuditService(db)
+    result = await auth_service.login(data, audit_service=audit_service)
 
     # Setear cookie HttpOnly con el JWT (segura contra XSS)
     set_auth_cookie(response, result["access_token"])

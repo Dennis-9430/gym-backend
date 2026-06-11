@@ -1,11 +1,15 @@
 """Rate limiting middleware with endpoint-specific rules and pluggable storage."""
+import logging
 import re
 from typing import List, Optional, Pattern, Tuple
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from app.middleware.rate_limit_store import RateLimitStore, SlidingWindowMemoryStore
+from app.config import settings
+from app.middleware.rate_limit_store import RateLimitStore, SlidingWindowMemoryStore, RedisRateLimitStore
+
+logger = logging.getLogger(__name__)
 
 # Singleton store — shared across instances
 _store: Optional[RateLimitStore] = None
@@ -14,7 +18,12 @@ _store: Optional[RateLimitStore] = None
 def get_store() -> RateLimitStore:
     global _store
     if _store is None:
-        _store = SlidingWindowMemoryStore()
+        if settings.REDIS_RATE_LIMIT_ENABLED and settings.REDIS_URL:
+            _store = RedisRateLimitStore(settings.REDIS_URL)
+            logger.info("Using RedisRateLimitStore")
+        else:
+            _store = SlidingWindowMemoryStore()
+            logger.info("Using SlidingWindowMemoryStore")
     return _store
 
 

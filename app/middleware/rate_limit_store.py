@@ -46,3 +46,41 @@ class SlidingWindowMemoryStore(RateLimitStore):
                 to_delete.append(key)
         for key in to_delete:
             del self._store[key]
+
+
+class RedisRateLimitStore(RateLimitStore):
+    """Redis-backed sliding window rate limit store.
+
+    Requires REDIS_URL and REDIS_RATE_LIMIT_ENABLED=True in settings.
+    Falls back to MemoryStore if Redis is not configured.
+    """
+
+    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
+        self.redis_url = redis_url
+        self._redis = None
+
+    async def _get_redis(self):
+        if self._redis is None:
+            import redis.asyncio as aioredis
+            self._redis = await aioredis.from_url(self.redis_url)
+        return self._redis
+
+    async def check_and_increment(self, key: str, limit: int, window_seconds: int) -> Tuple[bool, int]:
+        r = await self._get_redis()
+        now = time.time()
+        window_key = f"ratelimit:{key}"
+
+        # Remove old entries
+        await r.zremrangebyscore(window_key, 0, now - window_seconds)
+
+        # Count current entries
+        count = await r.zcard(window_key)
+
+        if count >= limit:
+            return (False, count)
+
+        # Add current request
+        await r.zadd(window_key, {str(now + id(key)): now})  # unique member
+        await r.expire(window_key, window_seconds * 2)
+
+        return (True, count + 1)
